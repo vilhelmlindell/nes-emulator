@@ -125,7 +125,7 @@ impl Cpu {
     }
 
     // Function to get the value of a specific status flag
-    fn get_status(&self, flag: Status) -> bool {
+    fn status(&self, flag: Status) -> bool {
         let flag_bit = 1 << flag as u8;
         (self.status & flag_bit) != 0
     }
@@ -197,11 +197,11 @@ impl Cpu {
         // Overflow
         let (sum, overflow) = self.a.overflowing_add(operand);
         self.a = sum;
-        if !self.status[Status::Carry as usize] {
+        if !self.status(Status::Carry) {
             self.a += 1;
         }
         if overflow {
-            self.status[Status::Carry as usize] = true;
+            self.set_status(Status::Carry, true);
         }
         self.update_zero_and_negative_flags(self.a);
     }
@@ -217,32 +217,32 @@ impl Cpu {
         let operand = self.memory[operand_address as usize];
 
         if self.a & 0b1000_0000 != 0 {
-            self.status[Status::Carry as usize] = true;
+            self.set_status(Status::Carry, true);
         }
 
         self.a &= operand;
     }
     pub fn bcc(&self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.pc;
         let operand = self.memory[operand_address as usize] as i8;
 
-        if !self.status[Status::Carry as usize] {
+        if !self.status(Status::Carry) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
     pub fn bcs(&self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.pc;
         let operand = self.memory[operand_address as usize] as i8;
 
-        if self.status[Status::Carry as usize] {
+        if self.status(Status::Carry) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
     pub fn beq(&self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.pc;
         let operand = self.memory[operand_address as usize] as i8;
 
-        if self.status[Status::Zero as usize] {
+        if self.status(Status::Zero) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
@@ -254,22 +254,22 @@ impl Cpu {
         self.update_zero_and_negative_flags(result);
 
         if 0b0100_0000 & result != 0 {
-            self.status[Status::Overflow as usize] = true;
+            self.set_status(Status::Overflow, true);
         }
     }
     pub fn bmi(&self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.pc;
         let operand = self.memory[operand_address as usize] as i8;
 
-        if self.status[Status::Negative as usize] {
+        if self.status(Status::Negative) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
     pub fn bne(&self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.pc;
         let operand = self.memory[operand_address as usize] as i8;
 
-        if !self.status[Status::Zero as usize] {
+        if !self.status(Status::Zero) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
@@ -277,11 +277,99 @@ impl Cpu {
         let operand_address = self.get_operand_address(mode);
         let operand = self.memory[operand_address as usize] as i8;
 
-        if !self.status[Status::Negative as usize] {
+        if !self.status(Status::Negative) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
     pub fn brk(&mut self, mode: &AddressingMode) {
-        self.status[Status::Break as usize] = true;
+        self.write_byte(self.sp as u16, self.pc as u8);
+        self.write_byte(self.sp as u16, self.status as u8);
+        self.pc = self.read_word(0xFFFE);
+        self.set_status(Status::Break, true);
+    }
+    pub fn bvc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.pc;
+        let operand = self.memory[operand_address as usize] as i8;
+
+        if !self.status(Status::Overflow) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    pub fn bvs(&mut self, mode: &AddressingMode) {
+        let operand_address = self.pc;
+        let operand = self.memory[operand_address as usize] as i8;
+
+        if self.status(Status::Overflow) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    pub fn clc(&mut self, mode: &AddressingMode) {
+        self.set_status(Status::Carry, false);
+    }
+    pub fn cld(&mut self, mode: &AddressingMode) {
+        self.set_status(Status::DecimalMode, false);
+    }
+    pub fn cli(&mut self, mode: &AddressingMode) {
+        self.set_status(Status::InterruptDisable, false);
+    }
+    pub fn cmp(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        let result = self.a - operand;
+
+        if result > 0 {
+            self.set_status(Status::Carry, true);
+        }
+        if result == 0 {
+            self.set_status(Status::Zero, true);
+        }
+        if result & 0b0100_0000 != 0 {
+            self.set_status(Status::Negative, true);
+        }
+    }
+    pub fn cpx(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        let result = self.x - operand;
+
+        if result > 0 {
+            self.set_status(Status::Carry, true);
+        }
+        if result == 0 {
+            self.set_status(Status::Zero, true);
+        }
+        if result & 0b0100_0000 != 0 {
+            self.set_status(Status::Negative, true);
+        }
+    }
+    pub fn cpy(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        let result = self.y - operand;
+
+        if result > 0 {
+            self.set_status(Status::Carry, true);
+        }
+        if result == 0 {
+            self.set_status(Status::Zero, true);
+        }
+        if result & 0b0100_0000 != 0 {
+            self.set_status(Status::Negative, true);
+        }
+    }
+    pub fn cpy(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        let result = self.y - operand;
+
+        if result > 0 {
+            self.set_status(Status::Carry, true);
+        }
+        if result == 0 {
+            self.set_status(Status::Zero, true);
+        }
+        if result & 0b0100_0000 != 0 {
+            self.set_status(Status::Negative, true);
+        }
     }
 }
