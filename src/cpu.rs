@@ -357,19 +357,69 @@ impl Cpu {
             self.set_status(Status::Negative, true);
         }
     }
-    pub fn cpy(&mut self, mode: &AddressingMode) {
+    pub fn dec(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = &mut self.memory[self.memory[operand_address as usize] as usize];
+        *operand = operand.wrapping_sub(1);
+        self.update_zero_and_negative_flags(*operand);
+    }
+    pub fn dex(&mut self, mode: &AddressingMode) {
+        self.x = self.x.wrapping_sub(1);
+        self.update_zero_and_negative_flags(self.x);
+    }
+    pub fn dey(&mut self, mode: &AddressingMode) {
+        self.y = self.y.wrapping_sub(1);
+        self.update_zero_and_negative_flags(self.y);
+    }
+    pub fn eor(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
         let operand = self.memory[operand_address as usize];
-        let result = self.y - operand;
-
-        if result > 0 {
-            self.set_status(Status::Carry, true);
-        }
-        if result == 0 {
-            self.set_status(Status::Zero, true);
-        }
-        if result & 0b0100_0000 != 0 {
-            self.set_status(Status::Negative, true);
-        }
+        self.a ^= operand;
+        self.update_zero_and_negative_flags(self.a);
     }
+    pub fn inc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = &mut self.memory[self.memory[operand_address as usize] as usize];
+        *operand = operand.wrapping_add(1);
+        self.update_zero_and_negative_flags(*operand);
+    }
+    pub fn inx(&mut self, mode: &AddressingMode) {
+        self.x = self.x.wrapping_add(1);
+        self.update_zero_and_negative_flags(self.x);
+    }
+    pub fn iny(&mut self, mode: &AddressingMode) {
+        self.y = self.y.wrapping_add(1);
+        self.update_zero_and_negative_flags(self.y);
+    }
+    pub fn jmp(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        self.pc = operand as u16;
+    }
+    pub fn jsr(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read_word(operand_address);
+        let return_address = self.pc - 1;
+        self.write_word(self.sp as u16, return_address);
+        self.pc = operand;
+    }
+    pub fn lda(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        self.a = operand;
+        self.update_zero_and_negative_flags(self.a);
+    }
+    pub fn ldx(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        self.x = operand;
+        self.update_zero_and_negative_flags(self.x);
+    }
+    pub fn ldy(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.memory[operand_address as usize];
+        self.y = operand;
+        self.update_zero_and_negative_flags(self.y);
+    }
+    pub fn nop() {}
 }
