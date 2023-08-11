@@ -1,16 +1,15 @@
 use crate::cpu::AddressingMode;
 use crate::cpu::Cpu;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
 
 const MAX_OPCODES: usize = 256;
 
 #[derive(Clone)]
 pub struct OpCode {
-    instruction: fn(&mut Cpu, &AddressingMode),
-    addressing_mode: AddressingMode,
-    bytes: u8,
-    cycles: u8,
+    pub instruction: fn(&mut Cpu, &AddressingMode),
+    pub addressing_mode: AddressingMode,
+    pub bytes: u8,
+    pub cycles: u8,
 }
 
 impl OpCode {
@@ -144,7 +143,7 @@ pub static CPU_OPCODES: Lazy<[Option<OpCode>; MAX_OPCODES]> = Lazy::new(|| {
     add_opcode(0xC8, Cpu::iny, AddressingMode::NoneAddressing, 1, 2);
     // JMP instruction
     add_opcode(0x4C, Cpu::jmp, AddressingMode::Absolute, 3, 3);
-    add_opcode(0x6C, Cpu::jmp, AddressingMode::Indirect, 3, 5);
+    add_opcode(0x6C, Cpu::jmp, AddressingMode::NoneAddressing, 3, 5);
     // JSR instruction
     add_opcode(0x20, Cpu::jsr, AddressingMode::Absolute, 3, 6);
     // LDA instruction

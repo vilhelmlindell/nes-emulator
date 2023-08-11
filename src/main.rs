@@ -3,6 +3,7 @@
 
 mod cpu;
 mod instructions;
+mod memory_bus;
 
 fn main() {
     println!("Hello, world!");
