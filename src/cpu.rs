@@ -506,23 +506,23 @@ impl Cpu {
     }
     pub fn sbc(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
-        let operand = self.read(operand_address);
+        // Same as adc, except the operand is inverted
+        let operand = !self.read(operand_address);
 
-        // Take the two's complement of the operand if the Carry flag is clear
-        let operand = if !self.status(Status::Carry) {
-            (!operand).wrapping_add(1)
-        } else {
-            operand
-        };
+        let carry_flag = if self.status(Status::Carry) { 1 } else { 0 };
 
-        let result = self.a.wrapping_sub(operand);
-        self.set_status(Status::Carry, self.a >= operand);
-        self.set_status(
-            Status::Overflow,
-            (self.a ^ operand) & 0x80 != 0 && (self.a ^ result) & 0x80 != 0,
-        );
-        self.a = result;
+        let (sum, carry1) = self.a.overflowing_add(operand);
+        let (sum_with_carry, carry2) = sum.overflowing_add(carry_flag);
+
+        let overflow = (self.a ^ sum) & (operand ^ sum_with_carry) & 0x80 != 0;
+
+        self.set_status(Status::Carry, carry1 || carry2);
+
+        self.a = sum_with_carry;
+
         self.update_zero_and_negative_flags(self.a);
+
+        self.set_status(Status::Overflow, overflow);
     }
     pub fn sec(&mut self, _mode: &AddressingMode) {
         self.set_status(Status::Carry, true);
