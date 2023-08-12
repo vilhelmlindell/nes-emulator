@@ -1,13 +1,12 @@
 use std::intrinsics::wrapping_add;
-use std::mem;
 
 use crate::instructions::CPU_OPCODES;
 use crate::memory_bus::{Bus, MemoryBus};
 
 const PC_START: u16 = 0xFFFC;
 const SP_START: u8 = 0xFD;
-const PRG_ROM_START: u16 = 0x8000;
-const PRG_ROM_END: u16 = 0x10000;
+const PRG_ROM_START: usize = 0x8000;
+const PRG_ROM_END: usize = 0x10000;
 
 pub struct Cpu {
     pc: u16,           // Program counter
@@ -45,7 +44,7 @@ pub enum AddressingMode {
 }
 
 impl Cpu {
-    fn new() -> Cpu {
+    pub fn new() -> Cpu {
         Cpu {
             pc: 0,
             sp: 0xFD,
@@ -56,20 +55,20 @@ impl Cpu {
             memory: MemoryBus::new(),
         }
     }
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.pc = self.read_word(PC_START);
-        self.sp = 0xFD;
+        self.sp = SP_START;
         self.a = 0;
         self.x = 0;
         self.y = 0;
     }
-    fn load(&mut self, bytes: Vec<u8>) {
-        if PRG_ROM_START.overflowing_add(bytes.len() as u16).1 {
-            panic!("Bytes too large");
+    pub fn load(&mut self, bytes: &[u8]) {
+        if PRG_ROM_START + bytes.len() >= PRG_ROM_END {
+            panic!("{} could not fit in memory size {}",);
         }
-        self.write_bytes(PRG_ROM_START, &bytes[..]);
+        self.write_bytes(PRG_ROM_START as u16, bytes);
     }
-    fn run(&mut self) {
+    pub fn run(&mut self) {
         loop {
             // Fetch
             let opcode = self.read(self.pc) as usize;
