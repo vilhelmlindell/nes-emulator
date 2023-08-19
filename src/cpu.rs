@@ -80,7 +80,7 @@ impl Cpu {
         loop {
             // Fetch
             let opcode_index = self.read(self.pc) as usize;
-            self.pc += 1;
+            println!("{}", opcode_index);
             // Decode
             let opcode = CPU_OPCODES[opcode_index].clone().expect("Invalid opcode");
             // Execute

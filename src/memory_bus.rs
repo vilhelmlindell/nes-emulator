@@ -1,4 +1,4 @@
-const MEMORY_SIZE: usize = 0xFFFF;
+const MEMORY_SIZE: usize = 0x10000;
 
 pub trait Bus {
     fn read(&self, address: u16) -> u8;
