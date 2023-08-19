@@ -9,13 +9,14 @@ const PRG_ROM_START: usize = 0x8000;
 const PRG_ROM_END: usize = 0x10000;
 
 pub struct Cpu {
-    pc: u16,           // Program counter
-    sp: u8,            // Stack pointer
-    a: u8,             // Accumulator
-    x: u8,             // X register
-    y: u8,             // Y register
-    status: u8,        // Status register
-    memory: MemoryBus, // Memory
+    pub pc: u16,    // Program counter
+    pub sp: u8,     // Stack pointer
+    pub a: u8,      // Accumulator
+    pub x: u8,      // X register
+    pub y: u8,      // Y register
+    pub status: u8, // Status register
+    pub cycles: u32,
+    pub memory: MemoryBus, // Memory
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,11 +48,12 @@ impl Cpu {
     pub fn new() -> Cpu {
         Cpu {
             pc: 0,
-            sp: 0xFD,
+            sp: SP_START,
             a: 0,
             x: 0,
             y: 0,
             status: 0,
+            cycles: 0,
             memory: MemoryBus::new(),
         }
     }
@@ -61,22 +63,31 @@ impl Cpu {
         self.a = 0;
         self.x = 0;
         self.y = 0;
+        self.cycles = 0;
     }
-    pub fn load(&mut self, bytes: &[u8]) {
-        if PRG_ROM_START + bytes.len() >= PRG_ROM_END {
-            panic!("{} could not fit in memory size {}",);
-        }
-        self.write_bytes(PRG_ROM_START as u16, bytes);
+    pub fn load(&mut self, address: u16, bytes: &[u8]) {
+        //if PRG_ROM_START + bytes.len() >= PRG_ROM_END {
+        //    panic!(
+        //        "Rom of size {}, could not fit in available size {}",
+        //        bytes.len(),
+        //        PRG_ROM_END - PRG_ROM_START
+        //    );
+        //}
+        //self.write_bytes(PRG_ROM_START as u16, bytes);
+        self.write_bytes(address, bytes);
     }
     pub fn run(&mut self) {
         loop {
             // Fetch
-            let opcode = self.read(self.pc) as usize;
+            let opcode_index = self.read(self.pc) as usize;
             self.pc += 1;
             // Decode
-            let opcode = CPU_OPCODES[opcode].clone().expect("Invalid opcode");
+            let opcode = CPU_OPCODES[opcode_index].clone().expect("Invalid opcode");
             // Execute
             (opcode.instruction)(self, &opcode.addressing_mode);
+
+            self.pc = self.pc.wrapping_add(opcode.bytes as u16);
+            self.cycles += opcode.cycles as u32;
         }
     }
 
