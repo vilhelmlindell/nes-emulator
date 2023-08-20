@@ -25,8 +25,8 @@ impl Bus for MemoryBus {
         self.memory[address as usize]
     }
     fn read_word(&self, address: u16) -> u16 {
-        let high = self.read(address) as u16;
-        let low = self.read(address + 1) as u16;
+        let low = self.read(address) as u16;
+        let high = self.read(address.wrapping_add(1)) as u16;
         (high << 8) | low
     }
     fn write(&mut self, address: u16, value: u8) {
@@ -37,7 +37,7 @@ impl Bus for MemoryBus {
         let high_byte = ((value >> 8) & 0xFF) as u8;
 
         self.memory[address as usize] = low_byte;
-        self.memory[(address + 1) as usize] = high_byte;
+        self.memory[(address.wrapping_add(1)) as usize] = high_byte;
     }
     fn write_bytes(&mut self, address: u16, bytes: &[u8]) {
         self.memory[address as usize..address as usize + bytes.len()].copy_from_slice(bytes);

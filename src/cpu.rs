@@ -1,6 +1,7 @@
 use std::intrinsics::wrapping_add;
+use std::io;
 
-use crate::instructions::CPU_OPCODES;
+use crate::instructions::{OpCode, CPU_OPCODES};
 use crate::memory_bus::{Bus, MemoryBus};
 
 const PC_START: u16 = 0xFFFC;
@@ -21,13 +22,13 @@ pub struct Cpu {
 
 #[derive(Debug, PartialEq)]
 enum Status {
-    Carry,
-    Zero,
-    InterruptDisable,
-    DecimalMode,
-    Break,
-    Overflow,
-    Negative,
+    Carry = 0,
+    Zero = 1,
+    InterruptDisable = 2,
+    DecimalMode = 3,
+    Break = 4,
+    Overflow = 6,
+    Negative = 7,
 }
 
 #[derive(PartialEq, Clone)]
@@ -36,12 +37,29 @@ pub enum AddressingMode {
     ZeroPage,
     ZeroPageX,
     ZeroPageY,
+    Relative,
     Absolute,
     AbsoluteX,
     AbsoluteY,
     IndirectX,
     IndirectY,
     NoneAddressing,
+}
+
+impl AddressingMode {
+    pub fn byte_count(&self) -> u16 {
+        match self {
+            Self::Immediate
+            | Self::ZeroPage
+            | Self::ZeroPageX
+            | Self::ZeroPageY
+            | Self::IndirectX
+            | Self::IndirectY
+            | Self::Relative => 1,
+            Self::Absolute | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => 2,
+            Self::NoneAddressing => 0,
+        }
+    }
 }
 
 impl Cpu {
@@ -78,17 +96,45 @@ impl Cpu {
     }
     pub fn run(&mut self) {
         loop {
-            // Fetch
-            let opcode_index = self.read(self.pc) as usize;
-            println!("{}", opcode_index);
-            // Decode
-            let opcode = CPU_OPCODES[opcode_index].clone().expect("Invalid opcode");
-            // Execute
-            (opcode.instruction)(self, &opcode.addressing_mode);
-
-            self.pc = self.pc.wrapping_add(opcode.bytes as u16);
-            self.cycles += opcode.cycles as u32;
+            self.step();
         }
+    }
+
+    fn step(&mut self) {
+        let opcode_index = self.read(self.pc) as usize;
+        let opcode = CPU_OPCODES[opcode_index].clone().expect("Invalid opcode");
+
+        self.print_instruction_state(&opcode);
+
+        self.pc += 1;
+
+        (opcode.instruction)(self, &opcode.addressing_mode);
+
+        self.cycles += opcode.cycles as u32;
+    }
+    fn print_instruction_state(&self, instruction: &OpCode) {
+        print!("{:X} ", self.pc);
+        for i in 0..instruction.bytes as u16 {
+            print!("{:X} ", self.read(self.pc.wrapping_add(i)));
+        }
+        print!("{} ", instruction.name);
+        print!("A={:X} X={:X} Y={:X} ", self.a, self.x, self.y);
+
+        let letters = "CZIDB-VN";
+        let mut result = String::new();
+
+        for i in 0..8 {
+            let mask = 1 << i;
+            if self.status & mask != 0 {
+                result.insert(0, letters.chars().nth(i).unwrap());
+            } else {
+                result.insert(0, '-');
+            }
+        }
+
+        print!("{}", result);
+
+        println!();
     }
 
     // Stack operations
@@ -129,16 +175,20 @@ impl Cpu {
     }
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.set_status(Status::Carry, true);
+            self.set_status(Status::Zero, true);
+        } else {
+            self.set_status(Status::Zero, false);
         }
 
         if result & 0b1000_0000 != 0 {
             self.set_status(Status::Negative, true);
+        } else {
+            self.set_status(Status::Negative, false);
         }
     }
-    fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
-        match mode {
-            AddressingMode::Immediate => self.pc,
+    fn get_operand_address(&mut self, mode: &AddressingMode) -> u16 {
+        let address = match mode {
+            AddressingMode::Immediate | AddressingMode::Relative => self.pc,
             AddressingMode::ZeroPage => self.read(self.pc) as u16,
             AddressingMode::Absolute => self.read_word(self.pc),
             AddressingMode::ZeroPageX => {
@@ -174,7 +224,9 @@ impl Cpu {
             AddressingMode::NoneAddressing => {
                 panic!("Mode doesn't support addresses")
             }
-        }
+        };
+        self.pc = self.pc.wrapping_add(mode.byte_count());
+        address
     }
 
     // Instructions
@@ -224,22 +276,25 @@ impl Cpu {
             self.write(operand_address, operand);
         };
     }
-    pub fn bcc(&mut self, _mode: &AddressingMode) {
-        let operand = self.read(self.pc) as i8;
+    pub fn bcc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
 
         if !self.status(Status::Carry) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
-    pub fn bcs(&mut self, _mode: &AddressingMode) {
-        let operand = self.read(self.pc) as i8;
+    pub fn bcs(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
 
         if self.status(Status::Carry) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
-    pub fn beq(&mut self, _mode: &AddressingMode) {
-        let operand = self.read(self.pc) as i8;
+    pub fn beq(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
 
         if self.status(Status::Zero) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
@@ -256,16 +311,16 @@ impl Cpu {
 
         self.update_zero_and_negative_flags(result);
     }
-    pub fn bmi(&mut self, _mode: &AddressingMode) {
-        let operand_address = self.pc;
+    pub fn bmi(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if self.status(Status::Negative) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
-    pub fn bne(&mut self, _mode: &AddressingMode) {
-        let operand_address = self.pc;
+    pub fn bne(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if !self.status(Status::Zero) {
@@ -286,16 +341,16 @@ impl Cpu {
         self.pc = self.read_word(PC_START);
         self.set_status(Status::Break, true);
     }
-    pub fn bvc(&mut self, _mode: &AddressingMode) {
-        let operand_address = self.pc;
+    pub fn bvc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if !self.status(Status::Overflow) {
             self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
-    pub fn bvs(&mut self, _mode: &AddressingMode) {
-        let operand_address = self.pc;
+    pub fn bvs(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if self.status(Status::Overflow) {
@@ -317,9 +372,9 @@ impl Cpu {
     pub fn cmp(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address);
-        let result = self.a - operand;
+        let result = self.a.wrapping_sub(operand);
 
-        if result > 0 {
+        if result >= 0 {
             self.set_status(Status::Carry, true);
         }
         if result == 0 {
@@ -347,17 +402,12 @@ impl Cpu {
     pub fn cpy(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address);
-        let result = self.y - operand;
+        let result = self.y.wrapping_sub(operand);
 
-        if result > 0 {
+        if result >= 0 {
             self.set_status(Status::Carry, true);
         }
-        if result == 0 {
-            self.set_status(Status::Zero, true);
-        }
-        if result & 0b0100_0000 != 0 {
-            self.set_status(Status::Negative, true);
-        }
+        self.update_zero_and_negative_flags(result);
     }
     pub fn dec(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
@@ -396,9 +446,8 @@ impl Cpu {
         self.update_zero_and_negative_flags(self.y);
     }
     pub fn jmp(&mut self, mode: &AddressingMode) {
-        let operand_address = self.read_word(self.get_operand_address(mode));
-        let operand = self.read_word(operand_address);
-        self.pc = operand;
+        let address = self.get_operand_address(mode);
+        self.pc = address;
     }
     pub fn jsr(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
