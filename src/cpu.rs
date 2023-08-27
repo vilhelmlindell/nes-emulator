@@ -96,15 +96,19 @@ impl Cpu {
     }
     pub fn run(&mut self) {
         loop {
-            self.step();
+            self.step(false);
         }
     }
 
-    fn step(&mut self) {
+    pub fn step(&mut self, debug: bool) {
         let opcode_index = self.read(self.pc) as usize;
-        let opcode = CPU_OPCODES[opcode_index].clone().expect("Invalid opcode");
+        let opcode = CPU_OPCODES[opcode_index]
+            .clone()
+            .unwrap_or_else(|| panic!("Invalid opcode: {:X}", opcode_index));
 
-        self.print_instruction_state(&opcode);
+        if debug {
+            self.print_instruction_state(&opcode);
+        }
 
         self.pc += 1;
 
@@ -132,7 +136,8 @@ impl Cpu {
             }
         }
 
-        print!("{}", result);
+        print!("PS=[{}] ", result);
+        print!("SP={:X} ", self.sp);
 
         println!();
     }
@@ -373,40 +378,43 @@ impl Cpu {
         let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address);
         let result = self.a.wrapping_sub(operand);
+        println!("{:X}", operand);
 
-        if result >= 0 {
+        // Check if there was no borrow during subtraction
+        if self.a >= operand {
             self.set_status(Status::Carry, true);
+        } else {
+            self.set_status(Status::Carry, false);
         }
-        if result == 0 {
-            self.set_status(Status::Zero, true);
-        }
-        if result & 0b0100_0000 != 0 {
-            self.set_status(Status::Negative, true);
-        }
+        self.update_zero_and_negative_flags(result);
     }
     pub fn cpx(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address);
-        let result = self.x - operand;
+        let result = self.x.wrapping_sub(operand); // Use wrapping_sub to handle underflow
 
-        if result > 0 {
+        // Check if there was no borrow during subtraction
+        if self.x >= operand {
             self.set_status(Status::Carry, true);
+        } else {
+            self.set_status(Status::Carry, false);
         }
-        if result == 0 {
-            self.set_status(Status::Zero, true);
-        }
-        if result & 0b0100_0000 != 0 {
-            self.set_status(Status::Negative, true);
-        }
+
+        self.update_zero_and_negative_flags(result);
     }
+
     pub fn cpy(&mut self, mode: &AddressingMode) {
         let operand_address = self.get_operand_address(mode);
         let operand = self.read(operand_address);
-        let result = self.y.wrapping_sub(operand);
+        let result = self.y.wrapping_sub(operand); // Use wrapping_sub to handle underflow
 
-        if result >= 0 {
+        // Check if there was no borrow during subtraction
+        if self.y >= operand {
             self.set_status(Status::Carry, true);
+        } else {
+            self.set_status(Status::Carry, false);
         }
+
         self.update_zero_and_negative_flags(result);
     }
     pub fn dec(&mut self, mode: &AddressingMode) {

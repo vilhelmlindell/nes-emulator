@@ -78,6 +78,9 @@ pub static CPU_OPCODES: Lazy<[Option<OpCode>; MAX_OPCODES]> = Lazy::new(|| {
     // BCC instruction
     add_opcode(0x90, Cpu::bcc, "BCC", AddressingMode::Relative, 2, 2);
 
+    // BCS instruction
+    add_opcode(0xB0, Cpu::bcs, "BCS", AddressingMode::Relative, 2, 2);
+
     // BEQ instruction
     add_opcode(0xF0, Cpu::beq, "BEQ", AddressingMode::Relative, 2, 2);
 
