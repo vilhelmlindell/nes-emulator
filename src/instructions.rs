@@ -1,267 +1,465 @@
-use crate::cpu::AddressingMode;
-use crate::cpu::Cpu;
-use once_cell::sync::Lazy;
+use crate::cpu::{AddressingMode, Cpu, ProcessorStatus};
+use crate::memory_bus::Bus;
 
-const MAX_OPCODES: usize = 256;
-
-#[derive(Clone)]
-pub struct OpCode {
-    pub instruction: fn(&mut Cpu, &AddressingMode),
-    pub name: &'static str,
-    pub addressing_mode: AddressingMode,
-    pub bytes: u8,
-    pub cycles: u8,
+pub trait InstructionSet {
+    fn adc(&mut self, mode: &AddressingMode); // Add with Carry
+    fn and(&mut self, mode: &AddressingMode); // Logical AND
+    fn asl(&mut self, mode: &AddressingMode); // Arithmetic Shift Left
+    fn bcc(&mut self, mode: &AddressingMode); // Branch if Carry Clear
+    fn bcs(&mut self, mode: &AddressingMode); // Branch if Carry Set
+    fn beq(&mut self, mode: &AddressingMode); // Branch if Equal
+    fn bit(&mut self, mode: &AddressingMode); // Bit Test
+    fn bmi(&mut self, mode: &AddressingMode); // Branch if Minus (Negative)
+    fn bne(&mut self, mode: &AddressingMode); // Branch if Not Equal
+    fn bpl(&mut self, mode: &AddressingMode); // Branch if Positive
+    fn brk(&mut self, mode: &AddressingMode); // Break
+    fn bvc(&mut self, mode: &AddressingMode); // Branch if Overflow Clear
+    fn bvs(&mut self, mode: &AddressingMode); // Branch if Overflow Set
+    fn clc(&mut self, mode: &AddressingMode); // Clear Carry Flag
+    fn cld(&mut self, mode: &AddressingMode); // Clear Decimal Mode
+    fn cli(&mut self, mode: &AddressingMode); // Clear Interrupt Disable
+    fn clv(&mut self, mode: &AddressingMode); // Clear Overflow Flag
+    fn cmp(&mut self, mode: &AddressingMode); // Compare
+    fn cpx(&mut self, mode: &AddressingMode); // Compare X Register
+    fn cpy(&mut self, mode: &AddressingMode); // Compare Y Register
+    fn dec(&mut self, mode: &AddressingMode); // Decrement Memory
+    fn dex(&mut self, mode: &AddressingMode); // Decrement X Register
+    fn dey(&mut self, mode: &AddressingMode); // Decrement Y Register
+    fn eor(&mut self, mode: &AddressingMode); // Exclusive OR
+    fn inc(&mut self, mode: &AddressingMode); // Increment Memory
+    fn inx(&mut self, mode: &AddressingMode); // Increment X Register
+    fn iny(&mut self, mode: &AddressingMode); // Increment Y Register
+    fn jmp(&mut self, mode: &AddressingMode); // Jump
+    fn jsr(&mut self, mode: &AddressingMode); // Jump to Subroutine
+    fn lda(&mut self, mode: &AddressingMode); // Load Accumulator
+    fn ldx(&mut self, mode: &AddressingMode); // Load X Register
+    fn ldy(&mut self, mode: &AddressingMode); // Load Y Register
+    fn lsr(&mut self, mode: &AddressingMode); // Logical Shift Right
+    fn nop(&mut self, mode: &AddressingMode); // No Operation
+    fn ora(&mut self, mode: &AddressingMode); // Logical OR
+    fn pha(&mut self, mode: &AddressingMode); // Push Accumulator
+    fn php(&mut self, mode: &AddressingMode); // Push Processor Status
+    fn pla(&mut self, mode: &AddressingMode); // Pull Accumulator
+    fn plp(&mut self, mode: &AddressingMode); // Pull Processor Status
+    fn rol(&mut self, mode: &AddressingMode); // Rotate Left
+    fn ror(&mut self, mode: &AddressingMode); // Rotate Right
+    fn rti(&mut self, mode: &AddressingMode); // Return from Interrupt
+    fn rts(&mut self, mode: &AddressingMode); // Return from Subroutine
+    fn sbc(&mut self, mode: &AddressingMode); // Subtract with Carry
+    fn sec(&mut self, mode: &AddressingMode); // Set Carry Flag
+    fn sed(&mut self, mode: &AddressingMode); // Set Decimal Mode
+    fn sei(&mut self, mode: &AddressingMode); // Set Interrupt Disable
+    fn sta(&mut self, mode: &AddressingMode); // Store Accumulator
+    fn stx(&mut self, mode: &AddressingMode); // Store X Register
+    fn sty(&mut self, mode: &AddressingMode); // Store Y Register
+    fn tax(&mut self, mode: &AddressingMode); // Transfer Accumulator to X
+    fn tay(&mut self, mode: &AddressingMode); // Transfer Accumulator to Y
+    fn tsx(&mut self, mode: &AddressingMode); // Transfer Stack Pointer to X
+    fn txa(&mut self, mode: &AddressingMode); // Transfer X to Accumulator
+    fn txs(&mut self, mode: &AddressingMode); // Transfer X to Stack Pointer
+    fn tya(&mut self, mode: &AddressingMode); // Transfer Y to Accumulator
 }
 
-impl OpCode {
-    pub fn new(
-        instruction: fn(&mut Cpu, &AddressingMode),
-        name: &'static str,
-        addressing_mode: AddressingMode,
-        bytes: u8,
-        cycles: u8,
-    ) -> Self {
-        Self {
-            instruction,
-            name,
-            addressing_mode,
-            bytes,
-            cycles,
+// Instructions
+impl InstructionSet for Cpu {
+    fn adc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+
+        let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
+
+        let (sum, carry1) = self.a.overflowing_add(operand);
+        let (sum_with_carry, carry2) = sum.overflowing_add(carry_flag);
+
+        let overflow = (self.a ^ sum) & (operand ^ sum_with_carry) & 0x80 != 0;
+
+        self.set_status(ProcessorStatus::Carry, carry1 || carry2);
+
+        self.a = sum_with_carry;
+
+        self.update_zero_and_negative_flags(self.a);
+
+        self.set_status(ProcessorStatus::Overflow, overflow);
+    }
+    fn and(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+
+        self.a &= operand;
+        self.update_zero_and_negative_flags(self.a);
+    }
+    fn asl(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = if *mode == AddressingMode::NoneAddressing {
+            self.a
+        } else {
+            self.read(operand_address)
+        };
+
+        let carry = operand & 0b1000_0000 != 0;
+
+        operand <<= 1;
+
+        self.set_status(ProcessorStatus::Carry, carry);
+
+        if *mode == AddressingMode::NoneAddressing {
+            self.a = operand;
+        } else {
+            self.write(operand_address, operand);
+        };
+    }
+    fn bcc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if !self.status(ProcessorStatus::Carry) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
         }
     }
+    fn bcs(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if self.status(ProcessorStatus::Carry) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn beq(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if self.status(ProcessorStatus::Zero) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn bit(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        let result = self.a & operand;
+
+        if 0b0100_0000 & result != 0 {
+            self.set_status(ProcessorStatus::Overflow, true);
+        }
+
+        self.update_zero_and_negative_flags(result);
+    }
+    fn bmi(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if self.status(ProcessorStatus::Negative) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn bne(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if !self.status(ProcessorStatus::Zero) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn bpl(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if !self.status(ProcessorStatus::Negative) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn brk(&mut self, _mode: &AddressingMode) {
+        self.push_word(self.pc);
+        self.push(self.status);
+        self.pc = self.read_word(PC_START);
+        self.set_status(ProcessorStatus::Break, true);
+    }
+    fn bvc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if !self.status(ProcessorStatus::Overflow) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn bvs(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address) as i8;
+
+        if self.status(ProcessorStatus::Overflow) {
+            self.pc = self.pc.wrapping_add_signed(operand as i16);
+        }
+    }
+    fn clc(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::Carry, false);
+    }
+    fn cld(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::DecimalMode, false);
+    }
+    fn cli(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::InterruptDisable, false);
+    }
+    fn clv(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::Overflow, false);
+    }
+    fn cmp(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        let result = self.a.wrapping_sub(operand);
+        println!("{:X}", operand);
+
+        // Check if there was no borrow during subtraction
+        if self.a >= operand {
+            self.set_status(ProcessorStatus::Carry, true);
+        } else {
+            self.set_status(ProcessorStatus::Carry, false);
+        }
+        self.update_zero_and_negative_flags(result);
+    }
+    fn cpx(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        let result = self.x.wrapping_sub(operand); // Use wrapping_sub to handle underflow
+
+        // Check if there was no borrow during subtraction
+        if self.x >= operand {
+            self.set_status(ProcessorStatus::Carry, true);
+        } else {
+            self.set_status(ProcessorStatus::Carry, false);
+        }
+
+        self.update_zero_and_negative_flags(result);
+    }
+
+    fn cpy(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        let result = self.y.wrapping_sub(operand); // Use wrapping_sub to handle underflow
+
+        // Check if there was no borrow during subtraction
+        if self.y >= operand {
+            self.set_status(ProcessorStatus::Carry, true);
+        } else {
+            self.set_status(ProcessorStatus::Carry, false);
+        }
+
+        self.update_zero_and_negative_flags(result);
+    }
+    fn dec(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = self.read(operand_address);
+        operand = operand.wrapping_sub(1);
+        self.update_zero_and_negative_flags(operand);
+        self.write(operand_address, operand);
+    }
+    fn dex(&mut self, _mode: &AddressingMode) {
+        self.x = self.x.wrapping_sub(1);
+        self.update_zero_and_negative_flags(self.x);
+    }
+    fn dey(&mut self, _mode: &AddressingMode) {
+        self.y = self.y.wrapping_sub(1);
+        self.update_zero_and_negative_flags(self.y);
+    }
+    fn eor(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        self.a ^= operand;
+        self.update_zero_and_negative_flags(self.a);
+    }
+    fn inc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = self.read(operand_address);
+        operand = operand.wrapping_add(1);
+        self.update_zero_and_negative_flags(operand);
+        self.write(operand_address, operand);
+    }
+    fn inx(&mut self, _mode: &AddressingMode) {
+        self.x = self.x.wrapping_add(1);
+        self.update_zero_and_negative_flags(self.x);
+    }
+    fn iny(&mut self, _mode: &AddressingMode) {
+        self.y = self.y.wrapping_add(1);
+        self.update_zero_and_negative_flags(self.y);
+    }
+    fn jmp(&mut self, mode: &AddressingMode) {
+        let address = self.get_operand_address(mode);
+        self.pc = address;
+    }
+    fn jsr(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read_word(operand_address);
+        let return_address = self.pc - 1;
+        self.write_word(self.sp as u16, return_address);
+        self.pc = operand;
+    }
+    fn lda(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        self.a = operand;
+        self.update_zero_and_negative_flags(self.a);
+    }
+    fn ldx(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        self.x = operand;
+        self.update_zero_and_negative_flags(self.x);
+    }
+    fn ldy(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+        self.y = operand;
+        self.update_zero_and_negative_flags(self.y);
+    }
+    fn lsr(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = if *mode == AddressingMode::NoneAddressing {
+            self.a
+        } else {
+            self.read(operand_address)
+        };
+
+        self.set_status(ProcessorStatus::Carry, operand & 0x01 != 0);
+        operand >>= 1;
+        self.update_zero_and_negative_flags(operand);
+
+        if *mode == AddressingMode::NoneAddressing {
+            self.a = operand;
+        } else {
+            self.write(operand_address, operand);
+        };
+    }
+    fn nop(&mut self, _mode: &AddressingMode) {}
+    fn ora(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let operand = self.read(operand_address);
+
+        self.a |= operand;
+        self.update_zero_and_negative_flags(self.a);
+    }
+    fn pha(&mut self, _mode: &AddressingMode) {
+        self.push(self.a);
+    }
+    fn php(&mut self, _mode: &AddressingMode) {
+        self.push(self.status);
+    }
+    fn pla(&mut self, _mode: &AddressingMode) {
+        let value = self.pull();
+        self.a = value;
+        self.update_zero_and_negative_flags(value);
+    }
+    fn plp(&mut self, _mode: &AddressingMode) {
+        let value = self.pull();
+        self.status = value;
+        self.update_zero_and_negative_flags(value);
+    }
+    fn rol(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = match mode {
+            AddressingMode::NoneAddressing => self.a,
+            _ => self.read(operand_address),
+        };
+
+        let carry = u8::from(self.status(ProcessorStatus::Carry));
+        let new_carry = operand & 0b1000_0000 != 0;
+
+        operand = (operand << 1) | carry;
+
+        self.set_status(ProcessorStatus::Carry, new_carry);
+        self.update_zero_and_negative_flags(operand);
+
+        match mode {
+            AddressingMode::NoneAddressing => self.a = operand,
+            _ => self.write(operand_address, operand),
+        };
+    }
+    fn ror(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        let mut operand = match mode {
+            AddressingMode::NoneAddressing => self.a,
+            _ => self.read(operand_address),
+        };
+
+        let carry = u8::from(self.status(ProcessorStatus::Carry)) << 7;
+        let new_carry = operand & 0b0000_0001 != 0;
+
+        operand = (operand << 1) | carry;
+
+        self.set_status(ProcessorStatus::Carry, new_carry);
+        self.update_zero_and_negative_flags(operand);
+
+        match mode {
+            AddressingMode::NoneAddressing => self.a = operand,
+            _ => self.write(operand_address, operand),
+        };
+    }
+    fn rti(&mut self, _mode: &AddressingMode) {
+        self.status = self.pull();
+        self.pc = self.pull_word();
+    }
+    fn rts(&mut self, _mode: &AddressingMode) {
+        self.pc = self.pull_word().wrapping_sub(1);
+    }
+    fn sbc(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        // Same as adc, except the operand is inverted
+        let operand = !self.read(operand_address);
+
+        let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
+
+        let (sum, carry1) = self.a.overflowing_add(operand);
+        let (sum_with_carry, carry2) = sum.overflowing_add(carry_flag);
+
+        let overflow = (self.a ^ sum) & (operand ^ sum_with_carry) & 0x80 != 0;
+
+        self.set_status(ProcessorStatus::Carry, carry1 || carry2);
+
+        self.a = sum_with_carry;
+
+        self.update_zero_and_negative_flags(self.a);
+
+        self.set_status(ProcessorStatus::Overflow, overflow);
+    }
+    fn sec(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::Carry, true);
+    }
+    fn sed(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::DecimalMode, true);
+    }
+    fn sei(&mut self, _mode: &AddressingMode) {
+        self.set_status(ProcessorStatus::InterruptDisable, true);
+    }
+    fn sta(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        self.write(operand_address, self.a);
+    }
+    fn stx(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        self.write(operand_address, self.x);
+    }
+    fn sty(&mut self, mode: &AddressingMode) {
+        let operand_address = self.get_operand_address(mode);
+        self.write(operand_address, self.y);
+    }
+    fn tax(&mut self, _mode: &AddressingMode) {
+        self.x = self.a;
+        self.update_zero_and_negative_flags(self.x);
+    }
+    fn tay(&mut self, _mode: &AddressingMode) {
+        self.y = self.a;
+        self.update_zero_and_negative_flags(self.y);
+    }
+    fn tsx(&mut self, _mode: &AddressingMode) {
+        self.x = self.sp;
+        self.update_zero_and_negative_flags(self.x);
+    }
+    fn txa(&mut self, _mode: &AddressingMode) {
+        self.a = self.x;
+        self.update_zero_and_negative_flags(self.a);
+    }
+    fn txs(&mut self, _mode: &AddressingMode) {
+        self.sp = self.x
+    }
+    fn tya(&mut self, _mode: &AddressingMode) {
+        self.a = self.y;
+        self.update_zero_and_negative_flags(self.a);
+    }
 }
-
-pub static CPU_OPCODES: Lazy<[Option<OpCode>; MAX_OPCODES]> = Lazy::new(|| {
-    let mut opcodes: [Option<OpCode>; MAX_OPCODES] = std::array::from_fn(|_| None);
-
-    let mut add_opcode = |opcode: u8,
-                          instruction: fn(&mut Cpu, &AddressingMode),
-                          name: &'static str, // Name is the third argument now
-                          addressing_mode: AddressingMode,
-                          bytes: u8,
-                          cycles: u8| {
-        opcodes[opcode as usize] = Some(OpCode::new(
-            instruction,
-            name,
-            addressing_mode,
-            bytes,
-            cycles,
-        ));
-    };
-    // ADC instruction
-    add_opcode(0x69, Cpu::adc, "ADC", AddressingMode::Immediate, 2, 2);
-    add_opcode(0x65, Cpu::adc, "ADC", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x75, Cpu::adc, "ADC", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0x6D, Cpu::adc, "ADC", AddressingMode::Absolute, 3, 4);
-    add_opcode(0x7D, Cpu::adc, "ADC", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0x79, Cpu::adc, "ADC", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0x61, Cpu::adc, "ADC", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0x71, Cpu::adc, "ADC", AddressingMode::IndirectY, 2, 5);
-
-    // AND instruction
-    add_opcode(0x29, Cpu::and, "AND", AddressingMode::Immediate, 2, 2);
-    add_opcode(0x25, Cpu::and, "AND", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x35, Cpu::and, "AND", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0x2D, Cpu::and, "AND", AddressingMode::Absolute, 3, 4);
-    add_opcode(0x3D, Cpu::and, "AND", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0x39, Cpu::and, "AND", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0x21, Cpu::and, "AND", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0x31, Cpu::and, "AND", AddressingMode::IndirectY, 2, 5);
-
-    // ASL instruction
-    add_opcode(0x0A, Cpu::asl, "ASL", AddressingMode::NoneAddressing, 1, 2);
-    add_opcode(0x06, Cpu::asl, "ASL", AddressingMode::ZeroPage, 2, 5);
-    add_opcode(0x16, Cpu::asl, "ASL", AddressingMode::ZeroPageX, 2, 6);
-    add_opcode(0x0E, Cpu::asl, "ASL", AddressingMode::Absolute, 3, 6);
-    add_opcode(0x1E, Cpu::asl, "ASL", AddressingMode::AbsoluteX, 3, 7);
-
-    // BCC instruction
-    add_opcode(0x90, Cpu::bcc, "BCC", AddressingMode::Relative, 2, 2);
-
-    // BCS instruction
-    add_opcode(0xB0, Cpu::bcs, "BCS", AddressingMode::Relative, 2, 2);
-
-    // BEQ instruction
-    add_opcode(0xF0, Cpu::beq, "BEQ", AddressingMode::Relative, 2, 2);
-
-    // BIT instruction
-    add_opcode(0x24, Cpu::bit, "BIT", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x2C, Cpu::bit, "BIT", AddressingMode::Absolute, 3, 4);
-
-    // BMI instruction
-    add_opcode(0x30, Cpu::bmi, "BMI", AddressingMode::Relative, 2, 2);
-    // BNE instruction
-    add_opcode(0xD0, Cpu::bne, "BNE", AddressingMode::Relative, 2, 2);
-    // BPL instruction
-    add_opcode(0x10, Cpu::bpl, "BPL", AddressingMode::Relative, 2, 2);
-    // BRK instruction
-    add_opcode(0x00, Cpu::brk, "BRK", AddressingMode::NoneAddressing, 1, 7);
-    // BVC instruction
-    add_opcode(0x50, Cpu::bvc, "BVC", AddressingMode::Relative, 2, 2);
-
-    // BVS instruction
-    add_opcode(0x70, Cpu::bvs, "BVS", AddressingMode::Relative, 2, 2);
-    // CLC instruction
-    add_opcode(0x18, Cpu::clc, "CLC", AddressingMode::NoneAddressing, 1, 2);
-    // CLD instruction
-    add_opcode(0xD8, Cpu::cld, "CLD", AddressingMode::NoneAddressing, 1, 2);
-    // CLI instruction
-    add_opcode(0x58, Cpu::cli, "CLI", AddressingMode::NoneAddressing, 1, 2);
-    // CLV instruction
-    add_opcode(0xB8, Cpu::clv, "CLV", AddressingMode::NoneAddressing, 1, 2);
-    // CMP instruction
-    add_opcode(0xC9, Cpu::cmp, "CMP", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xC5, Cpu::cmp, "CMP", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xD5, Cpu::cmp, "CMP", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0xCD, Cpu::cmp, "CMP", AddressingMode::Absolute, 3, 4);
-    add_opcode(0xDD, Cpu::cmp, "CMP", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0xD9, Cpu::cmp, "CMP", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0xC1, Cpu::cmp, "CMP", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0xD1, Cpu::cmp, "CMP", AddressingMode::IndirectY, 2, 5);
-    // CPX instruction
-    add_opcode(0xE0, Cpu::cpx, "CPX", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xE4, Cpu::cpx, "CPX", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xEC, Cpu::cpx, "CPX", AddressingMode::Absolute, 3, 4);
-    // CPY instruction
-    add_opcode(0xC0, Cpu::cpy, "CPY", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xC4, Cpu::cpy, "CPY", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xCC, Cpu::cpy, "CPY", AddressingMode::Absolute, 3, 4);
-    // DEC instruction
-    add_opcode(0xC6, Cpu::dec, "DEC", AddressingMode::ZeroPage, 2, 5);
-    add_opcode(0xD6, Cpu::dec, "DEC", AddressingMode::ZeroPageX, 2, 6);
-    add_opcode(0xCE, Cpu::dec, "DEC", AddressingMode::Absolute, 3, 6);
-    add_opcode(0xDE, Cpu::dec, "DEC", AddressingMode::AbsoluteX, 3, 7);
-    // DEX instruction
-    add_opcode(0xCA, Cpu::dex, "DEX", AddressingMode::NoneAddressing, 1, 2);
-    // DEY instruction
-    add_opcode(0x88, Cpu::dey, "DEY", AddressingMode::NoneAddressing, 1, 2);
-    // EOR instruction
-    add_opcode(0x49, Cpu::eor, "EOR", AddressingMode::Immediate, 2, 2);
-    add_opcode(0x45, Cpu::eor, "EOR", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x55, Cpu::eor, "EOR", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0x4D, Cpu::eor, "EOR", AddressingMode::Absolute, 3, 4);
-    add_opcode(0x5D, Cpu::eor, "EOR", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0x59, Cpu::eor, "EOR", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0x41, Cpu::eor, "EOR", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0x51, Cpu::eor, "EOR", AddressingMode::IndirectY, 2, 5);
-    // INC instruction
-    add_opcode(0xE6, Cpu::inc, "INC", AddressingMode::ZeroPage, 2, 5);
-    add_opcode(0xF6, Cpu::inc, "INC", AddressingMode::ZeroPageX, 2, 6);
-    add_opcode(0xEE, Cpu::inc, "INC", AddressingMode::Absolute, 3, 6);
-    add_opcode(0xFE, Cpu::inc, "INC", AddressingMode::AbsoluteX, 3, 7);
-    // INX instruction
-    add_opcode(0xE8, Cpu::inx, "INX", AddressingMode::NoneAddressing, 1, 2);
-    // INY instruction
-    add_opcode(0xC8, Cpu::iny, "INY", AddressingMode::NoneAddressing, 1, 2);
-    // JMP instruction
-    add_opcode(0x4C, Cpu::jmp, "JMP", AddressingMode::Absolute, 3, 3);
-    add_opcode(0x6C, Cpu::jmp, "JMP", AddressingMode::NoneAddressing, 3, 5);
-    // JSR instruction
-    add_opcode(0x20, Cpu::jsr, "JSR", AddressingMode::Absolute, 3, 6);
-    // LDA instruction
-    add_opcode(0xA9, Cpu::lda, "LDA", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xA5, Cpu::lda, "LDA", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xB5, Cpu::lda, "LDA", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0xAD, Cpu::lda, "LDA", AddressingMode::Absolute, 3, 4);
-    add_opcode(0xBD, Cpu::lda, "LDA", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0xB9, Cpu::lda, "LDA", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0xA1, Cpu::lda, "LDA", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0xB1, Cpu::lda, "LDA", AddressingMode::IndirectY, 2, 5);
-    // LDX instruction
-    add_opcode(0xA2, Cpu::ldx, "LDX", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xA6, Cpu::ldx, "LDX", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xB6, Cpu::ldx, "LDX", AddressingMode::ZeroPageY, 2, 4);
-    add_opcode(0xAE, Cpu::ldx, "LDX", AddressingMode::Absolute, 3, 4);
-    add_opcode(0xBE, Cpu::ldx, "LDX", AddressingMode::AbsoluteY, 3, 4);
-    // LDY instruction
-    add_opcode(0xA0, Cpu::ldy, "LDY", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xA4, Cpu::ldy, "LDY", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xB4, Cpu::ldy, "LDY", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0xAC, Cpu::ldy, "LDY", AddressingMode::Absolute, 3, 4);
-    add_opcode(0xBC, Cpu::ldy, "LDY", AddressingMode::AbsoluteX, 3, 4);
-    // LSR instruction
-    add_opcode(0x4A, Cpu::lsr, "LSR", AddressingMode::NoneAddressing, 1, 2);
-    add_opcode(0x46, Cpu::lsr, "LSR", AddressingMode::ZeroPage, 2, 5);
-    add_opcode(0x56, Cpu::lsr, "LSR", AddressingMode::ZeroPageX, 2, 6);
-    add_opcode(0x4E, Cpu::lsr, "LSR", AddressingMode::Absolute, 3, 6);
-    add_opcode(0x5E, Cpu::lsr, "LSR", AddressingMode::AbsoluteX, 3, 7);
-    // NOP instruction
-    add_opcode(0xEA, Cpu::nop, "NOP", AddressingMode::NoneAddressing, 1, 2);
-    // ORA instruction
-    add_opcode(0x09, Cpu::ora, "ORA", AddressingMode::Immediate, 2, 2);
-    add_opcode(0x05, Cpu::ora, "ORA", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x15, Cpu::ora, "ORA", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0x0D, Cpu::ora, "ORA", AddressingMode::Absolute, 3, 4);
-    add_opcode(0x1D, Cpu::ora, "ORA", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0x19, Cpu::ora, "ORA", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0x01, Cpu::ora, "ORA", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0x11, Cpu::ora, "ORA", AddressingMode::IndirectY, 2, 5);
-    // PHA instruction
-    add_opcode(0x48, Cpu::pha, "PHA", AddressingMode::NoneAddressing, 1, 3);
-    // PHP instruction
-    add_opcode(0x08, Cpu::php, "PHP", AddressingMode::NoneAddressing, 1, 3);
-    // PLA instruction
-    add_opcode(0x68, Cpu::pla, "PLA", AddressingMode::NoneAddressing, 1, 4);
-    // PLP instruction
-    add_opcode(0x28, Cpu::plp, "PLP", AddressingMode::NoneAddressing, 1, 4);
-    // ROL instruction
-    add_opcode(0x2A, Cpu::rol, "ROL", AddressingMode::NoneAddressing, 1, 2);
-    add_opcode(0x26, Cpu::rol, "ROL", AddressingMode::ZeroPage, 2, 5);
-    add_opcode(0x36, Cpu::rol, "ROL", AddressingMode::ZeroPageX, 2, 6);
-    add_opcode(0x2E, Cpu::rol, "ROL", AddressingMode::Absolute, 3, 6);
-    add_opcode(0x3E, Cpu::rol, "ROL", AddressingMode::AbsoluteX, 3, 7);
-    // ROR instruction
-    add_opcode(0x6A, Cpu::ror, "ROR", AddressingMode::NoneAddressing, 1, 2);
-    add_opcode(0x66, Cpu::ror, "ROR", AddressingMode::ZeroPage, 2, 5);
-    add_opcode(0x76, Cpu::ror, "ROR", AddressingMode::ZeroPageX, 2, 6);
-    add_opcode(0x6E, Cpu::ror, "ROR", AddressingMode::Absolute, 3, 6);
-    add_opcode(0x7E, Cpu::ror, "ROR", AddressingMode::AbsoluteX, 3, 7);
-    // RTI instruction
-    add_opcode(0x40, Cpu::rti, "RTI", AddressingMode::NoneAddressing, 1, 6);
-    // RTS instruction
-    add_opcode(0x60, Cpu::rts, "RTS", AddressingMode::NoneAddressing, 1, 6);
-    // SBC instruction
-    add_opcode(0xE9, Cpu::sbc, "SBC", AddressingMode::Immediate, 2, 2);
-    add_opcode(0xE5, Cpu::sbc, "SBC", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xF5, Cpu::sbc, "SBC", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0xED, Cpu::sbc, "SBC", AddressingMode::Absolute, 3, 4);
-    add_opcode(0xFD, Cpu::sbc, "SBC", AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0xF9, Cpu::sbc, "SBC", AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0xE1, Cpu::sbc, "SBC", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0xF1, Cpu::sbc, "SBC", AddressingMode::IndirectY, 2, 5);
-    // SEC instruction
-    add_opcode(0x38, Cpu::sec, "SEC", AddressingMode::NoneAddressing, 1, 2);
-    // SED instruction
-    add_opcode(0xF8, Cpu::sed, "SED", AddressingMode::NoneAddressing, 1, 2);
-    // SEI instruction
-    add_opcode(0x78, Cpu::sei, "SEI", AddressingMode::NoneAddressing, 1, 2);
-    // STA instruction
-    add_opcode(0x85, Cpu::sta, "STA", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x95, Cpu::sta, "STA", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0x8D, Cpu::sta, "STA", AddressingMode::Absolute, 3, 4);
-    add_opcode(0x9D, Cpu::sta, "STA", AddressingMode::AbsoluteX, 3, 5);
-    add_opcode(0x99, Cpu::sta, "STA", AddressingMode::AbsoluteY, 3, 5);
-    add_opcode(0x81, Cpu::sta, "STA", AddressingMode::IndirectX, 2, 6);
-    add_opcode(0x91, Cpu::sta, "STA", AddressingMode::IndirectY, 2, 6);
-    // STX instruction
-    add_opcode(0x86, Cpu::stx, "STX", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x96, Cpu::stx, "STX", AddressingMode::ZeroPageY, 2, 4);
-    add_opcode(0x8E, Cpu::stx, "STX", AddressingMode::Absolute, 3, 4);
-    // STY instruction
-    add_opcode(0x84, Cpu::sty, "STY", AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0x94, Cpu::sty, "STY", AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0x8C, Cpu::sty, "STY", AddressingMode::Absolute, 3, 4);
-    // TAX instruction
-    add_opcode(0xAA, Cpu::tax, "TAX", AddressingMode::NoneAddressing, 1, 2);
-    // TAY instruction
-    add_opcode(0xA8, Cpu::tay, "TAY", AddressingMode::NoneAddressing, 1, 2);
-    // TSX instruction
-    add_opcode(0xBA, Cpu::tsx, "TSX", AddressingMode::NoneAddressing, 1, 2);
-    // TXA instruction
-    add_opcode(0x8A, Cpu::txa, "TXA", AddressingMode::NoneAddressing, 1, 2);
-    // TXS instruction
-    add_opcode(0x9A, Cpu::txs, "TXS", AddressingMode::NoneAddressing, 1, 2);
-    // TYA instruction
-    add_opcode(0x98, Cpu::tya, "TYA", AddressingMode::NoneAddressing, 1, 2);
-    opcodes
-});
