@@ -2,29 +2,29 @@ use crate::cpu::AddressingMode;
 use crate::instructions::InstructionSet;
 use once_cell::sync::Lazy;
 
-pub const CPU_OPCODES: Lazy<[Option<OpCode>; MAX_OPCODES]> = Lazy::new(|| initialize_opcodes());
+pub static CPU_OPCODES: Lazy<[Option<Instruction>; MAX_OPCODES]> = Lazy::new(initialize_opcodes);
 const MAX_OPCODES: usize = 0xFF;
 
 #[derive(Clone)]
-pub struct OpCode {
+pub struct Instruction {
     pub name: &'static str,
-    pub instruction: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
+    pub function: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
     pub addressing_mode: AddressingMode,
     pub bytes: u8,
     pub cycles: u8,
 }
 
-impl OpCode {
+impl Instruction {
     fn new(
         name: &'static str,
-        instruction: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
+        function: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
         addressing_mode: AddressingMode,
         bytes: u8,
         cycles: u8,
     ) -> Self {
         Self {
             name,
-            instruction,
+            function,
             addressing_mode,
             bytes,
             cycles,
@@ -32,8 +32,8 @@ impl OpCode {
     }
 }
 
-fn initialize_opcodes() -> [Option<OpCode>; MAX_OPCODES] {
-    let mut opcodes: [Option<OpCode>; MAX_OPCODES] = std::array::from_fn(|_| None);
+fn initialize_opcodes() -> [Option<Instruction>; MAX_OPCODES] {
+    let mut opcodes: [Option<Instruction>; MAX_OPCODES] = std::array::from_fn(|_| None);
 
     let mut add_opcode = |opcode: u8,
                           name: &'static str,
@@ -41,7 +41,7 @@ fn initialize_opcodes() -> [Option<OpCode>; MAX_OPCODES] {
                           addressing_mode: AddressingMode,
                           bytes: u8,
                           cycles: u8| {
-        opcodes[opcode as usize] = Some(OpCode::new(name, instruction, addressing_mode, bytes, cycles));
+        opcodes[opcode as usize] = Some(Instruction::new(name, instruction, addressing_mode, bytes, cycles));
     };
     // ADC instruction
     add_opcode(0x69, "ADC", InstructionSet::adc, AddressingMode::Immediate, 2, 2);
@@ -148,14 +148,14 @@ fn initialize_opcodes() -> [Option<OpCode>; MAX_OPCODES] {
     // JSR instruction
     add_opcode(0x20, "JSR", InstructionSet::jsr, AddressingMode::Absolute, 3, 6);
     // LDA instruction
-    add_opcode(0xA9, "JSR", InstructionSet::lda, AddressingMode::Immediate, 2, 2);
-    add_opcode(0xA5, "JSR", InstructionSet::lda, AddressingMode::ZeroPage, 2, 3);
-    add_opcode(0xB5, "JSR", InstructionSet::lda, AddressingMode::ZeroPageX, 2, 4);
-    add_opcode(0xAD, "JSR", InstructionSet::lda, AddressingMode::Absolute, 3, 4);
-    add_opcode(0xBD, "JSR", InstructionSet::lda, AddressingMode::AbsoluteX, 3, 4);
-    add_opcode(0xB9, "JSR", InstructionSet::lda, AddressingMode::AbsoluteY, 3, 4);
-    add_opcode(0xA1, "JSR", InstructionSet::lda, AddressingMode::IndirectX, 2, 6);
-    add_opcode(0xB1, "JSR", InstructionSet::lda, AddressingMode::IndirectY, 2, 5);
+    add_opcode(0xA9, "LDA", InstructionSet::lda, AddressingMode::Immediate, 2, 2);
+    add_opcode(0xA5, "LDA", InstructionSet::lda, AddressingMode::ZeroPage, 2, 3);
+    add_opcode(0xB5, "LDA", InstructionSet::lda, AddressingMode::ZeroPageX, 2, 4);
+    add_opcode(0xAD, "LDA", InstructionSet::lda, AddressingMode::Absolute, 3, 4);
+    add_opcode(0xBD, "LDA", InstructionSet::lda, AddressingMode::AbsoluteX, 3, 4);
+    add_opcode(0xB9, "LDA", InstructionSet::lda, AddressingMode::AbsoluteY, 3, 4);
+    add_opcode(0xA1, "LDA", InstructionSet::lda, AddressingMode::IndirectX, 2, 6);
+    add_opcode(0xB1, "LDA", InstructionSet::lda, AddressingMode::IndirectY, 2, 5);
     // LDX instruction
     add_opcode(0xA2, "LDX", InstructionSet::ldx, AddressingMode::Immediate, 2, 2);
     add_opcode(0xA6, "LDX", InstructionSet::ldx, AddressingMode::ZeroPage, 2, 3);

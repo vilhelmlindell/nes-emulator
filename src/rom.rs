@@ -8,6 +8,7 @@ pub enum Mirroring {
 pub struct Rom {
     pub prg_rom: Vec<u8>,
     pub chr_rom: Vec<u8>,
+    pub prg_ram: [u8; 8192],
     pub mapper: u8,
     pub screen_mirroring: Mirroring,
 }
@@ -42,8 +43,17 @@ impl Rom {
         Ok(Self {
             prg_rom: bytes[prg_rom_start..prg_rom_start + prg_rom_size].to_vec(),
             chr_rom: bytes[chr_rom_start..chr_rom_start + chr_rom_size].to_vec(),
+            prg_ram: [0; 8192],
             mapper: mapper_number,
             screen_mirroring: mirroring,
         })
+    }
+}
+
+impl Default for Rom {
+    fn default() -> Self {
+        let mut bytes = vec![0x4E, 0x45, 0x53, 0x1A, 0x01, 0x01];
+        bytes.resize(24592, 0x00);
+        Self::new(&bytes).expect("Failed to create default rom")
     }
 }

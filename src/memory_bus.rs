@@ -17,6 +17,8 @@ pub trait Bus {
 
 pub struct MemoryBus {
     vram: [u8; RAM_SIZE],
+    ppu_registers: [u8; 8],
+    apu_io_registers: [u8; 0x20],
     mapper: Box<dyn Mapper>,
 }
 
@@ -28,19 +30,40 @@ impl MemoryBus {
             _ => unimplemented!("Mapper {} not implemented", rom.mapper),
         };
 
-        MemoryBus { vram: [0; RAM_SIZE], mapper }
+        MemoryBus {
+            vram: [0; RAM_SIZE],
+            ppu_registers: [0; 8],
+            apu_io_registers: [0; 32],
+            mapper,
+        }
     }
 }
 
 impl Bus for MemoryBus {
     fn read(&self, address: u16) -> u8 {
-        // First, try to read from RAM
-        if address <= RAM_MIRRORS_END {
-            let mirror_down_address = address & RAM_MIRROR_MASK; // Same as module 0x800
-            self.vram[mirror_down_address as usize]
-        } else {
-            // If not in RAM range, delegate to the mapper
-            self.mapper.read(address)
+        match address {
+            0x0000..=0x1FFF => {
+                // 2 KB internal RAM mirrored every 0x0800 bytes
+                let mirror_down_address = address % 0x800; // Equivalent to modulo 0x0800
+                self.vram[mirror_down_address as usize]
+            }
+            0x2000..=0x2007 => {
+                // NES PPU registers
+                self.ppu_registers[(address - 0x2000) as usize]
+            }
+            0x2008..=0x3FFF => {
+                // Mirrors of $2000–$2007 (repeats every 8 bytes)
+                let mirror_down_address = (address & 0x2007) % 0x800;
+                self.ppu_registers[mirror_down_address as usize]
+            }
+            0x4000..=0x401F => {
+                // NES APU and I/O registers and functionality
+                self.apu_io_registers[(address - 0x4000) as usize]
+            }
+            0x4020..=0xFFFF => {
+                // Cartridge space: PRG ROM, PRG RAM, and mapper registers
+                self.mapper.read(address)
+            }
         }
     }
     fn read_word(&self, address: u16) -> u16 {
@@ -50,13 +73,29 @@ impl Bus for MemoryBus {
     }
 
     fn write(&mut self, address: u16, value: u8) {
-        // First, try to write to RAM
-        if address <= RAM_MIRRORS_END {
-            let mirror_down_address = address & RAM_MIRROR_MASK; // Same as module 0x800
-            self.vram[mirror_down_address as usize] = value;
-        } else {
-            // If not in RAM range, delegate to the mapper
-            self.mapper.write(address, value);
+        match address {
+            0x0000..=0x1FFF => {
+                // 2 KB internal RAM mirrored every 0x0800 bytes
+                let mirror_down_address = address & RAM_MIRROR_MASK; // Same as module 0x800
+                self.vram[mirror_down_address as usize] = value;
+            }
+            0x2000..=0x2007 => {
+                // NES PPU registers
+                self.ppu_registers[(address - 0x2000) as usize] = value;
+            }
+            0x2008..=0x3FFF => {
+                // Mirrors of $2000–$2007 (repeats every 8 bytes)
+                let mirror_down_address = (address & 0x2007) % 0x800;
+                self.ppu_registers[mirror_down_address as usize] = value;
+            }
+            0x4000..=0x401F => {
+                // NES APU and I/O registers and their functionality
+                self.apu_io_registers[(address - 0x4000) as usize] = value;
+            }
+            0x4020..=0xFFFF => {
+                // Cartridge space: PRG ROM, PRG RAM, and mapper registers
+                self.mapper.write(address, value);
+            }
         }
     }
     fn write_word(&mut self, address: u16, value: u16) {

@@ -1,4 +1,4 @@
-use crate::cpu::{AddressingMode, Cpu, ProcessorStatus};
+use crate::cpu::{AddressingMode, Cpu, ProcessorStatus, RESET_VECTOR};
 use crate::memory_bus::Bus;
 
 pub trait InstructionSet {
@@ -63,17 +63,17 @@ pub trait InstructionSet {
 // Instructions
 impl InstructionSet for Cpu {
     fn adc(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
 
         let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
 
-        let (sum, carry1) = self.a.overflowing_add(operand);
-        let (sum_with_carry, carry2) = sum.overflowing_add(carry_flag);
+        let (sum, overflow1) = self.a.overflowing_add(operand);
+        let (sum_with_carry, overflow2) = sum.overflowing_add(carry_flag);
 
-        let overflow = (self.a ^ sum) & (operand ^ sum_with_carry) & 0x80 != 0;
+        let overflow = (self.a ^ operand) & 0x80 == 0 && (self.a ^ sum_with_carry) & 0x80 != 0;
 
-        self.set_status(ProcessorStatus::Carry, carry1 || carry2);
+        self.set_status(ProcessorStatus::Carry, overflow1 || overflow2);
 
         self.a = sum_with_carry;
 
@@ -81,18 +81,19 @@ impl InstructionSet for Cpu {
 
         self.set_status(ProcessorStatus::Overflow, overflow);
     }
+
     fn and(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
 
         self.a &= operand;
         self.update_zero_and_negative_flags(self.a);
     }
     fn asl(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
         let mut operand = if *mode == AddressingMode::NoneAddressing {
             self.a
         } else {
+            let operand_address = self.operand_address(mode);
             self.read(operand_address)
         };
 
@@ -101,15 +102,17 @@ impl InstructionSet for Cpu {
         operand <<= 1;
 
         self.set_status(ProcessorStatus::Carry, carry);
+        self.update_zero_and_negative_flags(operand);
 
         if *mode == AddressingMode::NoneAddressing {
             self.a = operand;
         } else {
+            let operand_address = self.operand_address(mode);
             self.write(operand_address, operand);
         };
     }
     fn bcc(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if !self.status(ProcessorStatus::Carry) {
@@ -117,7 +120,7 @@ impl InstructionSet for Cpu {
         }
     }
     fn bcs(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if self.status(ProcessorStatus::Carry) {
@@ -125,7 +128,7 @@ impl InstructionSet for Cpu {
         }
     }
     fn beq(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if self.status(ProcessorStatus::Zero) {
@@ -133,18 +136,16 @@ impl InstructionSet for Cpu {
         }
     }
     fn bit(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         let result = self.a & operand;
 
-        if 0b0100_0000 & result != 0 {
-            self.set_status(ProcessorStatus::Overflow, true);
-        }
-
-        self.update_zero_and_negative_flags(result);
+        self.set_status(ProcessorStatus::Zero, result == 0);
+        self.set_status(ProcessorStatus::Overflow, operand & 0b0100_0000 != 0);
+        self.set_status(ProcessorStatus::Negative, operand & 0b1000_0000 != 0);
     }
     fn bmi(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if self.status(ProcessorStatus::Negative) {
@@ -152,7 +153,7 @@ impl InstructionSet for Cpu {
         }
     }
     fn bne(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if !self.status(ProcessorStatus::Zero) {
@@ -160,7 +161,7 @@ impl InstructionSet for Cpu {
         }
     }
     fn bpl(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if !self.status(ProcessorStatus::Negative) {
@@ -169,12 +170,12 @@ impl InstructionSet for Cpu {
     }
     fn brk(&mut self, _mode: &AddressingMode) {
         self.push_word(self.pc);
-        self.push(self.status);
-        self.pc = self.read_word(PC_START);
-        self.set_status(ProcessorStatus::Break, true);
+        // https://www.nesdev.org/wiki/Status_flags#The_B_flag
+        self.push(self.status | 0b0001_0000);
+        self.pc = self.read_word(RESET_VECTOR);
     }
     fn bvc(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if !self.status(ProcessorStatus::Overflow) {
@@ -182,7 +183,7 @@ impl InstructionSet for Cpu {
         }
     }
     fn bvs(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address) as i8;
 
         if self.status(ProcessorStatus::Overflow) {
@@ -202,10 +203,9 @@ impl InstructionSet for Cpu {
         self.set_status(ProcessorStatus::Overflow, false);
     }
     fn cmp(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         let result = self.a.wrapping_sub(operand);
-        println!("{:X}", operand);
 
         // Check if there was no borrow during subtraction
         if self.a >= operand {
@@ -216,7 +216,7 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(result);
     }
     fn cpx(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         let result = self.x.wrapping_sub(operand); // Use wrapping_sub to handle underflow
 
@@ -231,7 +231,7 @@ impl InstructionSet for Cpu {
     }
 
     fn cpy(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         let result = self.y.wrapping_sub(operand); // Use wrapping_sub to handle underflow
 
@@ -245,7 +245,7 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(result);
     }
     fn dec(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let mut operand = self.read(operand_address);
         operand = operand.wrapping_sub(1);
         self.update_zero_and_negative_flags(operand);
@@ -260,13 +260,13 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.y);
     }
     fn eor(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         self.a ^= operand;
         self.update_zero_and_negative_flags(self.a);
     }
     fn inc(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let mut operand = self.read(operand_address);
         operand = operand.wrapping_add(1);
         self.update_zero_and_negative_flags(operand);
@@ -281,39 +281,37 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.y);
     }
     fn jmp(&mut self, mode: &AddressingMode) {
-        let address = self.get_operand_address(mode);
+        let address = self.operand_address(mode);
         self.pc = address;
     }
     fn jsr(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
-        let operand = self.read_word(operand_address);
-        let return_address = self.pc - 1;
-        self.write_word(self.sp as u16, return_address);
-        self.pc = operand;
+        let address = self.operand_address(mode);
+        self.push_word(self.pc - 1);
+        self.pc = address;
     }
     fn lda(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         self.a = operand;
         self.update_zero_and_negative_flags(self.a);
     }
     fn ldx(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         self.x = operand;
         self.update_zero_and_negative_flags(self.x);
     }
     fn ldy(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
         self.y = operand;
         self.update_zero_and_negative_flags(self.y);
     }
     fn lsr(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
         let mut operand = if *mode == AddressingMode::NoneAddressing {
             self.a
         } else {
+            let operand_address = self.operand_address(mode);
             self.read(operand_address)
         };
 
@@ -324,12 +322,13 @@ impl InstructionSet for Cpu {
         if *mode == AddressingMode::NoneAddressing {
             self.a = operand;
         } else {
+            let operand_address = self.operand_address(mode);
             self.write(operand_address, operand);
         };
     }
     fn nop(&mut self, _mode: &AddressingMode) {}
     fn ora(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         let operand = self.read(operand_address);
 
         self.a |= operand;
@@ -339,7 +338,8 @@ impl InstructionSet for Cpu {
         self.push(self.a);
     }
     fn php(&mut self, _mode: &AddressingMode) {
-        self.push(self.status);
+        // https://www.nesdev.org/wiki/Status_flags#The_B_flag
+        self.push(self.status | 0b0001_0000);
     }
     fn pla(&mut self, _mode: &AddressingMode) {
         let value = self.pull();
@@ -349,13 +349,14 @@ impl InstructionSet for Cpu {
     fn plp(&mut self, _mode: &AddressingMode) {
         let value = self.pull();
         self.status = value;
-        self.update_zero_and_negative_flags(value);
     }
     fn rol(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
         let mut operand = match mode {
             AddressingMode::NoneAddressing => self.a,
-            _ => self.read(operand_address),
+            _ => {
+                let operand_address = self.operand_address(mode);
+                self.read(operand_address)
+            }
         };
 
         let carry = u8::from(self.status(ProcessorStatus::Carry));
@@ -368,27 +369,35 @@ impl InstructionSet for Cpu {
 
         match mode {
             AddressingMode::NoneAddressing => self.a = operand,
-            _ => self.write(operand_address, operand),
+            _ => {
+                let operand_address = self.operand_address(mode);
+                self.write(operand_address, operand);
+            }
         };
     }
     fn ror(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
         let mut operand = match mode {
             AddressingMode::NoneAddressing => self.a,
-            _ => self.read(operand_address),
+            _ => {
+                let operand_address = self.operand_address(mode);
+                self.read(operand_address)
+            }
         };
 
         let carry = u8::from(self.status(ProcessorStatus::Carry)) << 7;
         let new_carry = operand & 0b0000_0001 != 0;
 
-        operand = (operand << 1) | carry;
+        operand = (operand >> 1) | carry;
 
         self.set_status(ProcessorStatus::Carry, new_carry);
         self.update_zero_and_negative_flags(operand);
 
         match mode {
             AddressingMode::NoneAddressing => self.a = operand,
-            _ => self.write(operand_address, operand),
+            _ => {
+                let operand_address = self.operand_address(mode);
+                self.write(operand_address, operand);
+            }
         };
     }
     fn rti(&mut self, _mode: &AddressingMode) {
@@ -396,21 +405,20 @@ impl InstructionSet for Cpu {
         self.pc = self.pull_word();
     }
     fn rts(&mut self, _mode: &AddressingMode) {
-        self.pc = self.pull_word().wrapping_sub(1);
+        self.pc = self.pull_word() + 1;
     }
     fn sbc(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
-        // Same as adc, except the operand is inverted
+        let operand_address = self.operand_address(mode);
         let operand = !self.read(operand_address);
 
         let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
 
-        let (sum, carry1) = self.a.overflowing_add(operand);
-        let (sum_with_carry, carry2) = sum.overflowing_add(carry_flag);
+        let (sum, overflow1) = self.a.overflowing_add(operand);
+        let (sum_with_carry, overflow2) = sum.overflowing_add(carry_flag);
 
-        let overflow = (self.a ^ sum) & (operand ^ sum_with_carry) & 0x80 != 0;
+        let overflow = (self.a ^ operand) & 0x80 == 0 && (self.a ^ sum_with_carry) & 0x80 != 0;
 
-        self.set_status(ProcessorStatus::Carry, carry1 || carry2);
+        self.set_status(ProcessorStatus::Carry, overflow1 || overflow2);
 
         self.a = sum_with_carry;
 
@@ -428,15 +436,15 @@ impl InstructionSet for Cpu {
         self.set_status(ProcessorStatus::InterruptDisable, true);
     }
     fn sta(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         self.write(operand_address, self.a);
     }
     fn stx(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         self.write(operand_address, self.x);
     }
     fn sty(&mut self, mode: &AddressingMode) {
-        let operand_address = self.get_operand_address(mode);
+        let operand_address = self.operand_address(mode);
         self.write(operand_address, self.y);
     }
     fn tax(&mut self, _mode: &AddressingMode) {
@@ -456,7 +464,7 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.a);
     }
     fn txs(&mut self, _mode: &AddressingMode) {
-        self.sp = self.x
+        self.sp = self.x;
     }
     fn tya(&mut self, _mode: &AddressingMode) {
         self.a = self.y;
