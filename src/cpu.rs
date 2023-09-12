@@ -26,7 +26,7 @@ impl Cpu {
             x: 0,
             y: 0,
             status: STATUS_DEFAULT,
-            cycles: 0,
+            cycles: 7,
             memory_bus,
         }
     }
@@ -37,7 +37,7 @@ impl Cpu {
         self.x = 0;
         self.y = 0;
         self.status = STATUS_DEFAULT;
-        self.cycles = 0;
+        self.cycles = 7;
     }
     pub fn fetch(&self) -> Instruction {
         let opcode = self.read(self.pc) as usize;
@@ -88,7 +88,7 @@ impl Cpu {
         output.push_str(&format!("P:[{}] ", result));
         //output.push_str(&format!("P:{:02X} ", self.status));
         output.push_str(&format!("SP:{:02X} ", self.sp));
-        output.push_str(&format!("C:{}", self.cycles));
+        output.push_str(&format!("CYC:{}", self.cycles));
 
         output
     }
@@ -166,24 +166,28 @@ impl Cpu {
                 wrapping_add(addr, self.y as u16)
             }
             AddressingMode::IndirectX => {
-                let addr = self.read(self.pc);
-                let addr = wrapping_add(addr, self.x) as u16;
-                let low = self.read(addr) as u16;
-                let high = self.read(wrapping_add(addr, 1)) as u16;
-                println!("{:X}", addr);
-                println!("{:X}", (high << 8) | low);
-                (high << 8) | low
+                let zero_page_addr = self.read(self.pc);
+                let addr_low = self.read(zero_page_addr.wrapping_add(self.x) as u16) as u16;
+                let addr_high = self.read(zero_page_addr.wrapping_add(self.x.wrapping_add(1)) as u16) as u16;
+
+                (addr_high << 8) | addr_low
             }
             AddressingMode::IndirectY => {
-                let addr = self.read(self.pc);
-                let addr = wrapping_add(addr, self.y) as u16;
-                let low = self.read(addr) as u16;
-                let high = self.read(wrapping_add(addr, 1)) as u16;
-                (high << 8) | low
+                let zero_page_addr = self.read(self.pc);
+                let addr_low = self.read(zero_page_addr as u16) as u16;
+                let addr_high = self.read(zero_page_addr.wrapping_add(1) as u16) as u16;
+                let base_addr = (addr_high << 8) | addr_low;
+
+                base_addr.wrapping_add(self.y as u16)
             }
-            AddressingMode::NoneAddressing => {
-                panic!("Mode doesn't support addresses")
+            AddressingMode::Indirect => {
+                let addr = self.read_word(self.pc);
+                let addr_low = self.read(addr) as u16;
+                let addr_high_location = (addr & 0xFF == 0xFF).then_some(addr & 0xFF00).unwrap_or_else(|| addr.wrapping_add(1));
+                let addr_high = self.read(addr_high_location) as u16;
+                (addr_high << 8) | addr_low
             }
+            AddressingMode::NoneAddressing => 0,
         };
         self.pc = self.pc.wrapping_add(mode.byte_count());
         address
@@ -229,6 +233,7 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
+    Indirect,
     NoneAddressing,
 }
 
@@ -236,7 +241,7 @@ impl AddressingMode {
     pub fn byte_count(&self) -> u16 {
         match self {
             Self::Immediate | Self::ZeroPage | Self::ZeroPageX | Self::ZeroPageY | Self::IndirectX | Self::IndirectY | Self::Relative => 1,
-            Self::Absolute | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => 2,
+            Self::Absolute | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::Indirect => 2,
             Self::NoneAddressing => 0,
         }
     }

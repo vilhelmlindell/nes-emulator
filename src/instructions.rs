@@ -90,10 +90,10 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.a);
     }
     fn asl(&mut self, mode: &AddressingMode) {
+        let operand_address = self.operand_address(mode);
         let mut operand = if *mode == AddressingMode::NoneAddressing {
             self.a
         } else {
-            let operand_address = self.operand_address(mode);
             self.read(operand_address)
         };
 
@@ -107,7 +107,6 @@ impl InstructionSet for Cpu {
         if *mode == AddressingMode::NoneAddressing {
             self.a = operand;
         } else {
-            let operand_address = self.operand_address(mode);
             self.write(operand_address, operand);
         };
     }
@@ -281,7 +280,12 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.y);
     }
     fn jmp(&mut self, mode: &AddressingMode) {
-        let address = self.operand_address(mode);
+        let mut address = self.operand_address(mode);
+
+        // Use none addressing for indirect mode
+        if *mode == AddressingMode::NoneAddressing {
+            address = self.read_word(address);
+        }
         self.pc = address;
     }
     fn jsr(&mut self, mode: &AddressingMode) {
@@ -308,10 +312,10 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.y);
     }
     fn lsr(&mut self, mode: &AddressingMode) {
+        let operand_address = self.operand_address(mode);
         let mut operand = if *mode == AddressingMode::NoneAddressing {
             self.a
         } else {
-            let operand_address = self.operand_address(mode);
             self.read(operand_address)
         };
 
@@ -322,7 +326,6 @@ impl InstructionSet for Cpu {
         if *mode == AddressingMode::NoneAddressing {
             self.a = operand;
         } else {
-            let operand_address = self.operand_address(mode);
             self.write(operand_address, operand);
         };
     }
@@ -351,12 +354,10 @@ impl InstructionSet for Cpu {
         self.status = value;
     }
     fn rol(&mut self, mode: &AddressingMode) {
+        let operand_address = self.operand_address(mode);
         let mut operand = match mode {
             AddressingMode::NoneAddressing => self.a,
-            _ => {
-                let operand_address = self.operand_address(mode);
-                self.read(operand_address)
-            }
+            _ => self.read(operand_address),
         };
 
         let carry = u8::from(self.status(ProcessorStatus::Carry));
@@ -369,19 +370,14 @@ impl InstructionSet for Cpu {
 
         match mode {
             AddressingMode::NoneAddressing => self.a = operand,
-            _ => {
-                let operand_address = self.operand_address(mode);
-                self.write(operand_address, operand);
-            }
+            _ => self.write(operand_address, operand),
         };
     }
     fn ror(&mut self, mode: &AddressingMode) {
+        let operand_address = self.operand_address(mode);
         let mut operand = match mode {
             AddressingMode::NoneAddressing => self.a,
-            _ => {
-                let operand_address = self.operand_address(mode);
-                self.read(operand_address)
-            }
+            _ => self.read(operand_address),
         };
 
         let carry = u8::from(self.status(ProcessorStatus::Carry)) << 7;
@@ -394,10 +390,7 @@ impl InstructionSet for Cpu {
 
         match mode {
             AddressingMode::NoneAddressing => self.a = operand,
-            _ => {
-                let operand_address = self.operand_address(mode);
-                self.write(operand_address, operand);
-            }
+            _ => self.write(operand_address, operand),
         };
     }
     fn rti(&mut self, _mode: &AddressingMode) {
@@ -438,6 +431,7 @@ impl InstructionSet for Cpu {
     fn sta(&mut self, mode: &AddressingMode) {
         let operand_address = self.operand_address(mode);
         self.write(operand_address, self.a);
+        println!("A: {:X}, address: {:X}", self.a, operand_address);
     }
     fn stx(&mut self, mode: &AddressingMode) {
         let operand_address = self.operand_address(mode);

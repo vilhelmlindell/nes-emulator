@@ -144,7 +144,7 @@ fn initialize_opcodes() -> [Option<Instruction>; MAX_OPCODES] {
     add_opcode(0xC8, "INY", InstructionSet::iny, AddressingMode::NoneAddressing, 1, 2);
     // JMP instruction
     add_opcode(0x4C, "JMP", InstructionSet::jmp, AddressingMode::Absolute, 3, 3);
-    add_opcode(0x6C, "JMP", InstructionSet::jmp, AddressingMode::NoneAddressing, 3, 5);
+    add_opcode(0x6C, "JMP", InstructionSet::jmp, AddressingMode::Indirect, 3, 5);
     // JSR instruction
     add_opcode(0x20, "JSR", InstructionSet::jsr, AddressingMode::Absolute, 3, 6);
     // LDA instruction

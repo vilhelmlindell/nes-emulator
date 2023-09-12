@@ -1,12 +1,12 @@
 use crate::mapper::{Mapper, NromMapper};
 use crate::rom::Rom;
 
+pub const VRAM_SIZE: usize = 2048;
+
 const RAM_MIRRORS_END: u16 = 0x1FFF;
 const RAM_MIRROR_MASK: u16 = 0x0800 - 1;
 const PPU_REGISTERS: u16 = 0x2000;
 const PPU_REGISTERS_MIRRORS_END: u16 = 0x3FFF;
-
-const RAM_SIZE: usize = 2048;
 
 pub trait Bus {
     fn read(&self, address: u16) -> u8;
@@ -16,7 +16,7 @@ pub trait Bus {
 }
 
 pub struct MemoryBus {
-    vram: [u8; RAM_SIZE],
+    vram: [u8; VRAM_SIZE],
     ppu_registers: [u8; 8],
     apu_io_registers: [u8; 0x20],
     mapper: Box<dyn Mapper>,
@@ -31,7 +31,7 @@ impl MemoryBus {
         };
 
         MemoryBus {
-            vram: [0; RAM_SIZE],
+            vram: [0; VRAM_SIZE],
             ppu_registers: [0; 8],
             apu_io_registers: [0; 32],
             mapper,
