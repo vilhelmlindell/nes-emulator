@@ -1,71 +1,95 @@
-use crate::memory_bus::VRAM_SIZE; // Import VRAM_SIZE from your module
+use bitflags::bitflags;
+
+const VRAM_SIZE: usize = 2048;
 
 pub struct Ppu {
     vram: [u8; VRAM_SIZE],
-    registers: AddressRegisters,
-}
-
-pub struct AddressRegisters {
-    upper_addr: u8, // Upper byte of the PPU address
-    lower_addr: u8, // Lower byte of the PPU address
-}
-
-impl AddressRegisters {
-    pub fn new() -> Self {
-        AddressRegisters {
-            upper_addr: 0,
-            lower_addr: 0,
-        }
-    }
-
-    pub fn write_upper_byte(&mut self, byte: u8) {
-        // Write the upper byte of the PPU address
-        self.upper_addr = byte;
-    }
-
-    pub fn write_lower_byte(&mut self, byte: u8) {
-        // Write the lower byte of the PPU address
-        self.lower_addr = byte;
-    }
-
-    pub fn as_word(&self) -> u16 {
-        // Combine the upper and lower bytes to get the 16-bit address
-        u16::from(self.upper_addr) << 8 | u16::from(self.lower_addr)
-    }
-
-    pub fn reset_address(&mut self) {
-        self.upper_addr = 0;
-        self.lower_addr = 0;
-    }
+    vram_address: PpuAddress,
+    control: ControlFlags,
 }
 
 impl Ppu {
     pub fn new() -> Self {
         Ppu {
             vram: [0; VRAM_SIZE],
-            registers: AddressRegisters::new(),
+            vram_address: PpuAddress::new(),
+            control: ControlFlags::empty(),
         }
     }
 
-    pub fn read_ppudata(&mut self) -> u8 {
-        let data = self.ppudata_register.read();
-        self.ppudata_register.write(self.read_vram(self.registers.get_address()));
-        if self.dpcm_sample_in_progress {
-            self.registers.increment_address(32); // Skip an extra byte
+    pub fn read_ppudata(&self) -> u8 {
+        let address = self.vram_address.get_address() as usize;
+        // Read data from the VRAM buffer at the current VRAM address
+        self.vram[address]
+    }
+
+    pub fn write_ppudata(&mut self, value: u8) {
+        let address = self.vram_address.get_address() as usize;
+        self.vram[address] = value;
+        self.vram_address.increment(self.control.vram_address_increment());
+    }
+}
+
+pub struct PpuAddress {
+    high_byte: u8,
+    low_byte: u8,
+    is_high_byte: bool,
+}
+
+impl PpuAddress {
+    pub fn new() -> Self {
+        PpuAddress {
+            high_byte: 0,
+            low_byte: 0,
+            is_high_byte: true,
+        }
+    }
+
+    pub fn set_byte(&mut self, byte: u8) {
+        if self.is_high_byte {
+            // Mirror down addresses above 0x3FFF
+            self.high_byte = byte & 0x3F;
         } else {
-            self.registers.increment_address(1);
+            self.low_byte = byte;
         }
-        data
+        self.is_high_byte = !self.is_high_byte;
     }
 
-    pub fn write_ppudata(&mut self, data: u8) {
-        self.write_vram(self.registers.get_address(), data);
-        if self.dpcm_sample_in_progress {
-            self.registers.increment_address(32); // Skip an extra byte
-        } else {
-            self.registers.increment_address(1);
-        }
+    pub fn get_address(&self) -> u16 {
+        u16::from_be_bytes([self.high_byte, self.low_byte])
     }
 
-    // Add other PPU methods as needed
+    pub fn increment(&mut self, value: u8) {
+        let current_address = self.get_address();
+        let new_address = current_address.wrapping_add(value as u16);
+        self.high_byte = (new_address >> 8) as u8;
+        self.low_byte = new_address as u8;
+    }
+
+    pub fn reset_latch(&mut self) {
+        self.is_high_byte = true;
+    }
+}
+
+bitflags! {
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct ControlFlags: u8 {
+        const BaseNametableMask = 0b00000011;
+        const VRAMAddressIncrement = 0b00000100;
+        const SpritePatternTableAddress = 0b00001000;
+        const BackgroundPatternTableAddress = 0b00010000;
+        const SpriteSize = 0b00100000;
+        const PPUMasterSlaveSelect = 0b01000000;
+        const GenerateNMI = 0b10000000;
+    }
+}
+
+impl ControlFlags {
+    // Method to extract the VRAM address increment value
+    pub fn vram_address_increment(&self) -> u8 {
+        match *self {
+            Self::VRAMAddressIncrement => 32,
+            _ => 1,
+        }
+    }
 }
