@@ -1,4 +1,4 @@
-use crate::memory_bus::{Bus, MemoryBus};
+use crate::memory_bus::MemoryBus;
 use crate::opcodes::{Instruction, CPU_OPCODES};
 use std::intrinsics::wrapping_add;
 
@@ -31,7 +31,7 @@ impl Cpu {
         }
     }
     pub fn reset(&mut self) {
-        self.pc = self.read_word(RESET_VECTOR);
+        self.pc = self.memory_bus.read_word(RESET_VECTOR);
         self.sp = SP_START;
         self.a = 0;
         self.x = 0;
@@ -40,12 +40,12 @@ impl Cpu {
         self.cycles = 7;
     }
     pub fn fetch(&self) -> Instruction {
-        let opcode = self.read(self.pc) as usize;
+        let opcode = self.memory_bus.read(self.pc) as usize;
         CPU_OPCODES[opcode].clone().unwrap_or_else(|| panic!("Invalid opcode: {:X}", opcode))
     }
     pub fn execute(&mut self, instruction: &Instruction) {
         self.pc += 1;
-        (instruction.function)(self, &instruction.addressing_mode);
+        (instruction.function)(self, instruction.addressing_mode);
         self.cycles += instruction.cycles as u32;
     }
     pub fn run(&mut self) {
@@ -58,7 +58,7 @@ impl Cpu {
         let mut output = format!("{:04X}  ", self.pc);
         for i in 0..3 {
             if i < instruction.bytes {
-                output.push_str(&format!("{:02X} ", self.read(self.pc.wrapping_add(i as u16))));
+                output.push_str(&format!("{:02X} ", self.memory_bus.read(self.pc.wrapping_add(i as u16))));
             } else {
                 output.push_str("   ");
             }
@@ -95,7 +95,7 @@ impl Cpu {
 
     // Stack operations
     pub fn push(&mut self, value: u8) {
-        self.write(0x0100 + self.sp as u16, value);
+        self.memory_bus.write(0x0100 + self.sp as u16, value);
         self.sp = self.sp.wrapping_sub(1);
     }
 
@@ -109,7 +109,7 @@ impl Cpu {
 
     pub fn pull(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        self.read(0x0100 + self.sp as u16)
+        self.memory_bus.read(0x0100 + self.sp as u16)
     }
 
     pub fn pull_word(&mut self) -> u16 {
@@ -144,47 +144,47 @@ impl Cpu {
             self.set_status(ProcessorStatus::Negative, false);
         }
     }
-    pub fn operand_address(&mut self, mode: &AddressingMode) -> u16 {
+    pub fn operand_address(&mut self, mode: AddressingMode) -> u16 {
         let address = match mode {
             AddressingMode::Immediate | AddressingMode::Relative => self.pc,
-            AddressingMode::ZeroPage => self.read(self.pc) as u16,
-            AddressingMode::Absolute => self.read_word(self.pc),
+            AddressingMode::ZeroPage => self.memory_bus.read(self.pc) as u16,
+            AddressingMode::Absolute => self.memory_bus.read_word(self.pc),
             AddressingMode::ZeroPageX => {
-                let addr = self.read(self.pc);
+                let addr = self.memory_bus.read(self.pc);
                 wrapping_add(addr, self.x) as u16
             }
             AddressingMode::ZeroPageY => {
-                let addr = self.read(self.pc);
+                let addr = self.memory_bus.read(self.pc);
                 wrapping_add(addr, self.y) as u16
             }
             AddressingMode::AbsoluteX => {
-                let addr = self.read_word(self.pc);
+                let addr = self.memory_bus.read_word(self.pc);
                 wrapping_add(addr, self.x as u16)
             }
             AddressingMode::AbsoluteY => {
-                let addr = self.read_word(self.pc);
+                let addr = self.memory_bus.read_word(self.pc);
                 wrapping_add(addr, self.y as u16)
             }
             AddressingMode::IndirectX => {
-                let zero_page_addr = self.read(self.pc);
-                let addr_low = self.read(zero_page_addr.wrapping_add(self.x) as u16) as u16;
-                let addr_high = self.read(zero_page_addr.wrapping_add(self.x.wrapping_add(1)) as u16) as u16;
+                let zero_page_addr = self.memory_bus.read(self.pc);
+                let addr_low = self.memory_bus.read(zero_page_addr.wrapping_add(self.x) as u16) as u16;
+                let addr_high = self.memory_bus.read(zero_page_addr.wrapping_add(self.x.wrapping_add(1)) as u16) as u16;
 
                 (addr_high << 8) | addr_low
             }
             AddressingMode::IndirectY => {
-                let zero_page_addr = self.read(self.pc);
-                let addr_low = self.read(zero_page_addr as u16) as u16;
-                let addr_high = self.read(zero_page_addr.wrapping_add(1) as u16) as u16;
+                let zero_page_addr = self.memory_bus.read(self.pc);
+                let addr_low = self.memory_bus.read(zero_page_addr as u16) as u16;
+                let addr_high = self.memory_bus.read(zero_page_addr.wrapping_add(1) as u16) as u16;
                 let base_addr = (addr_high << 8) | addr_low;
 
                 base_addr.wrapping_add(self.y as u16)
             }
             AddressingMode::Indirect => {
-                let addr = self.read_word(self.pc);
-                let addr_low = self.read(addr) as u16;
+                let addr = self.memory_bus.read_word(self.pc);
+                let addr_low = self.memory_bus.read(addr) as u16;
                 let addr_high_location = (addr & 0xFF == 0xFF).then_some(addr & 0xFF00).unwrap_or_else(|| addr.wrapping_add(1));
-                let addr_high = self.read(addr_high_location) as u16;
+                let addr_high = self.memory_bus.read(addr_high_location) as u16;
                 (addr_high << 8) | addr_low
             }
             AddressingMode::NoneAddressing => 0,
@@ -192,21 +192,22 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(mode.byte_count());
         address
     }
-}
-
-impl Bus for Cpu {
-    fn read(&self, address: u16) -> u8 {
-        self.memory_bus.read(address)
+    pub fn count_branch_cycles(&mut self, old_pc: u16, mode: AddressingMode) {
+        if mode != AddressingMode::Relative {
+            return;
+        }
+        self.cycles += 1;
+        if (old_pc & 0xFF00) != (self.pc & 0xFF00) {
+            self.cycles += 1;
+        }
     }
-    fn read_word(&self, address: u16) -> u16 {
-        self.memory_bus.read_word(address)
-    }
-
-    fn write(&mut self, address: u16, value: u8) {
-        self.memory_bus.write(address, value);
-    }
-    fn write_word(&mut self, address: u16, value: u16) {
-        self.memory_bus.write_word(address, value);
+    pub fn count_page_crossing_cycles(&mut self, address: u16, mode: AddressingMode) {
+        if !matches!(mode, AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::IndirectY) {
+            return;
+        }
+        if (self.pc & 0xFF00) != (address & 0xFF00) {
+            self.cycles += 1;
+        }
     }
 }
 
@@ -221,7 +222,7 @@ pub enum ProcessorStatus {
     Negative = 7,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,

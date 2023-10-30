@@ -1,32 +1,27 @@
-use crate::rom::Rom;
-
 pub trait Mapper {
     fn read(&self, address: u16) -> u8;
     fn write(&mut self, address: u16, value: u8);
 }
 
 pub struct NromMapper {
-    rom: Rom, // Store the ROM data
+    prg_rom: Vec<u8>,
+    prg_ram: [u8; 8192],
 }
 
 impl NromMapper {
-    pub fn new(rom: Rom) -> Self {
-        NromMapper { rom }
+    pub fn new(prg_rom: Vec<u8>, prg_ram: [u8; 8192]) -> Self {
+        NromMapper { prg_rom, prg_ram }
     }
 }
 
 impl Mapper for NromMapper {
     fn read(&self, address: u16) -> u8 {
         match address {
-            0x4020..=0x7FFF => self.rom.prg_ram[(address - 0x4020) as usize],
+            0x4020..=0x7FFF => self.prg_ram[(address - 0x4020) as usize],
             0x8000..=0xFFFF => {
                 // In NROM, the PRG ROM is directly accessible from CPU address space
-                let prg_rom_address = if self.rom.prg_rom.len() >= 16384 {
-                    (address as usize - 0x8000) & 16384
-                } else {
-                    address as usize - 0x8000
-                };
-                self.rom.prg_rom[prg_rom_address]
+                let prg_rom_address = (address as usize - 0x8000) % 16384;
+                self.prg_rom[prg_rom_address]
             }
             _ => {
                 unreachable!("Mapper should not handle this address");
@@ -38,7 +33,7 @@ impl Mapper for NromMapper {
         // Excess ram is writable to
         match address {
             0x4020..=0x7FFF => {
-                self.rom.prg_ram[(address - 0x4020) as usize] = value;
+                self.prg_ram[(address - 0x4020) as usize] = value;
             }
             0x8000..=0xFFFF => {
                 panic!("Cartridge ROM space is not writable to with the NromMapper");

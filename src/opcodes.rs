@@ -8,7 +8,7 @@ const MAX_OPCODES: usize = 0xFF;
 #[derive(Clone)]
 pub struct Instruction {
     pub name: &'static str,
-    pub function: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
+    pub function: fn(&mut (dyn InstructionSet + 'static), AddressingMode),
     pub addressing_mode: AddressingMode,
     pub bytes: u8,
     pub cycles: u8,
@@ -17,7 +17,7 @@ pub struct Instruction {
 impl Instruction {
     fn new(
         name: &'static str,
-        function: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
+        function: fn(&mut (dyn InstructionSet + 'static), AddressingMode),
         addressing_mode: AddressingMode,
         bytes: u8,
         cycles: u8,
@@ -37,7 +37,7 @@ fn initialize_opcodes() -> [Option<Instruction>; MAX_OPCODES] {
 
     let mut add_opcode = |opcode: u8,
                           name: &'static str,
-                          instruction: fn(&mut (dyn InstructionSet + 'static), &AddressingMode),
+                          instruction: fn(&mut (dyn InstructionSet + 'static), AddressingMode),
                           addressing_mode: AddressingMode,
                           bytes: u8,
                           cycles: u8| {

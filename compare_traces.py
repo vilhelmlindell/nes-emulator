@@ -12,6 +12,8 @@ def extract_text(input_string, string_to_find):
     if start_index != -1:
         # Find the next space character from the start index
         next_space_index = input_string.find(" ", start_index)
+        if next_space_index == -1:
+            next_space_index = input_string.find("\n", start_index)
 
         if next_space_index != -1:
             # Extract the substring from the start index to the next space
@@ -22,7 +24,7 @@ def extract_text(input_string, string_to_find):
     return None  # Return None if the string to find or space is not found
 
 
-strings_to_find = ["A:", "X:", "Y:", "P:", "SP:"]
+strings_to_find = ["A:", "X:", "Y:", "P:", "SP:", "CYC:"]
 
 with open(trace_path, "r") as trace_file, open(
     nestest_trace_path, "r"

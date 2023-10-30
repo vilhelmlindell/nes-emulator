@@ -1,19 +1,25 @@
 use bitflags::bitflags;
 
+use crate::rom::{Mirroring, Rom};
+
 const VRAM_SIZE: usize = 2048;
 
 pub struct Ppu {
     vram: [u8; VRAM_SIZE],
     vram_address: PpuAddress,
     control: ControlFlags,
+    chr_rom: Vec<u8>,
+    screen_mirroring: Mirroring,
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(chr_rom: Vec<u8>, screen_mirroring: Mirroring) -> Self {
         Ppu {
             vram: [0; VRAM_SIZE],
             vram_address: PpuAddress::new(),
             control: ControlFlags::empty(),
+            chr_rom,
+            screen_mirroring,
         }
     }
 
@@ -27,6 +33,10 @@ impl Ppu {
         let address = self.vram_address.get_address() as usize;
         self.vram[address] = value;
         self.vram_address.increment(self.control.vram_address_increment());
+    }
+
+    pub fn write_control(&mut self, value: u8) {
+        self.control = ControlFlags::from_bits_truncate(value);
     }
 }
 
