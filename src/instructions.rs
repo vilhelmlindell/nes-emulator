@@ -217,8 +217,9 @@ impl InstructionSet for Cpu {
         self.set_status(ProcessorStatus::Overflow, false);
     }
     fn cmp(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = self.memory_bus.read(operand_address);
         let result = self.a.wrapping_sub(operand);
 
@@ -275,8 +276,9 @@ impl InstructionSet for Cpu {
         self.update_zero_and_negative_flags(self.y);
     }
     fn eor(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = self.memory_bus.read(operand_address);
         self.a ^= operand;
         self.update_zero_and_negative_flags(self.a);
@@ -311,23 +313,26 @@ impl InstructionSet for Cpu {
         self.pc = address;
     }
     fn lda(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = self.memory_bus.read(operand_address);
 
         self.a = operand;
         self.update_zero_and_negative_flags(self.a);
     }
     fn ldx(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = self.memory_bus.read(operand_address);
         self.x = operand;
         self.update_zero_and_negative_flags(self.x);
     }
     fn ldy(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = self.memory_bus.read(operand_address);
         self.y = operand;
         self.update_zero_and_negative_flags(self.y);
@@ -352,8 +357,9 @@ impl InstructionSet for Cpu {
     }
     fn nop(&mut self, _mode: AddressingMode) {}
     fn ora(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = self.memory_bus.read(operand_address);
 
         self.a |= operand;
@@ -423,8 +429,9 @@ impl InstructionSet for Cpu {
         self.pc = self.pull_word() + 1;
     }
     fn sbc(&mut self, mode: AddressingMode) {
+        let old_pc = self.pc;
         let operand_address = self.operand_address(mode);
-        self.count_page_crossing_cycles(operand_address, mode);
+        self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = !self.memory_bus.read(operand_address);
 
         let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
@@ -454,7 +461,6 @@ impl InstructionSet for Cpu {
     fn sta(&mut self, mode: AddressingMode) {
         let operand_address = self.operand_address(mode);
         self.memory_bus.write(operand_address, self.a);
-        println!("A: {:X}, address: {:X}", self.a, operand_address);
     }
     fn stx(&mut self, mode: AddressingMode) {
         let operand_address = self.operand_address(mode);

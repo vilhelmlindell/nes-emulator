@@ -201,11 +201,21 @@ impl Cpu {
             self.cycles += 1;
         }
     }
-    pub fn count_page_crossing_cycles(&mut self, address: u16, mode: AddressingMode) {
-        if !matches!(mode, AddressingMode::AbsoluteX | AddressingMode::AbsoluteY | AddressingMode::IndirectY) {
-            return;
-        }
-        if (self.pc & 0xFF00) != (address & 0xFF00) {
+    pub fn count_page_crossing_cycles(&mut self, old_pc: u16, operand_address: u16, mode: AddressingMode) {
+        let address: u16 = match mode {
+            AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => self.memory_bus.read_word(old_pc),
+            AddressingMode::IndirectY => {
+                let zero_page_addr = self.memory_bus.read(old_pc) as u16;
+                let address_low = self.memory_bus.read(zero_page_addr) as u16;
+                let address_high = self.memory_bus.read(zero_page_addr.wrapping_add(1)) as u16;
+                (address_high << 8) | address_low
+            }
+            _ => {
+                return;
+            }
+        };
+
+        if (address & 0xFF00) != (operand_address & 0xFF00) {
             self.cycles += 1;
         }
     }
