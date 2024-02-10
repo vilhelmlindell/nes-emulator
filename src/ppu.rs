@@ -1,36 +1,49 @@
-use bitflags::bitflags;
+use bitflags::{bitflags, Flags};
 
-use crate::rom::{Mirroring, Rom};
+use crate::{mapper::Mapper, rom::Mirroring};
 
 const VRAM_SIZE: usize = 2048;
 
 pub struct Ppu {
     vram: [u8; VRAM_SIZE],
-    vram_address: PpuAddress,
+    vram_address: VramAddress,
     control: ControlFlags,
     chr_rom: Vec<u8>,
     screen_mirroring: Mirroring,
+
+    cycle: u32,
+    scanline: u32,
+    frame: u32,
+    //v: u16,
+    //t: u16,
+    //x: u8,
+    x_scroll: u8,
+    y_scroll: u8,
+    w: bool,
 }
 
 impl Ppu {
     pub fn new(chr_rom: Vec<u8>, screen_mirroring: Mirroring) -> Self {
         Ppu {
             vram: [0; VRAM_SIZE],
-            vram_address: PpuAddress::new(),
+            vram_address: VramAddress::new(),
             control: ControlFlags::empty(),
             chr_rom,
             screen_mirroring,
+            cycle: 0,
+            scanline: 0,
+            frame: 0,
         }
     }
 
-    pub fn read_ppudata(&self) -> u8 {
-        let address = self.vram_address.get_address() as usize;
+    pub fn read_data(&self) -> u8 {
+        let address = self.vram_address.address() as usize;
         // Read data from the VRAM buffer at the current VRAM address
         self.vram[address]
     }
 
-    pub fn write_ppudata(&mut self, value: u8) {
-        let address = self.vram_address.get_address() as usize;
+    pub fn write_data(&mut self, value: u8) {
+        let address = self.vram_address.address() as usize;
         self.vram[address] = value;
         self.vram_address.increment(self.control.vram_address_increment());
     }
@@ -38,17 +51,79 @@ impl Ppu {
     pub fn write_control(&mut self, value: u8) {
         self.control = ControlFlags::from_bits_truncate(value);
     }
+
+    pub fn write_scroll(&mut self, value: u8) {
+        if self.w {
+            self.x_scroll = value;
+        } else {
+            self.y_scroll = value;
+        }
+    }
+
+    pub fn step(&mut self) {
+        match self.cycle {
+            0 => {}
+            1..=256 => {}
+            257..=320 => {}
+            337..=340 => {}
+        }
+
+        self.cycle += 1;
+        if self.cycle > 340 {
+            self.cycle = 0;
+            self.scanline += 1;
+            if self.scanline > 261 {
+                self.scanline = 0;
+                self.frame += 1;
+            }
+        }
+    }
+
+    fn fetch_nametable_byte(&self) -> u8 {
+        let nametable_flag = self.control.intersection(ControlFlags::BaseNametableMask).bits();
+        let base_address = match nametable_flag {
+            0 => 0x2000,
+            1 => 0x2400,
+            2 => 0x2800,
+            3 => 0x2C00,
+            _ => unreachable!(),
+        };
+        //let address = ((nametable_flag as u16) << 10) | 1 << 13 | self.x_scroll as u16 | ((self.y_scroll as u16) << 5);
+        let address = base_address | self.x_scroll as u16 | ((self.y_scroll as u16) << 5);
+        self.read(address)
+    }
+    fn fetch_pattern_table_tile(&self) {
+        let fine_y = (self.vram_address.address() & 0x7000) >> 12;
+    }
+
+    fn fetch_attribute_table_byte(&self) -> u8 {
+        let address = 0x23C0
+            | (self.vram_address.address() & 0x0C00)
+            | ((self.vram_address.address() >> 4) & 0x38)
+            | ((self.vram_address.address() >> 2) & 0x07);
+        self.read(address)
+    }
 }
 
-pub struct PpuAddress {
+impl Mapper for Ppu {
+    fn read(&self, address: u16) -> u8 {
+        todo!()
+    }
+
+    fn write(&mut self, address: u16, value: u8) {
+        todo!()
+    }
+}
+
+pub struct VramAddress {
     high_byte: u8,
     low_byte: u8,
     is_high_byte: bool,
 }
 
-impl PpuAddress {
+impl VramAddress {
     pub fn new() -> Self {
-        PpuAddress {
+        VramAddress {
             high_byte: 0,
             low_byte: 0,
             is_high_byte: true,
@@ -65,12 +140,12 @@ impl PpuAddress {
         self.is_high_byte = !self.is_high_byte;
     }
 
-    pub fn get_address(&self) -> u16 {
+    pub fn address(&self) -> u16 {
         u16::from_be_bytes([self.high_byte, self.low_byte])
     }
 
     pub fn increment(&mut self, value: u8) {
-        let current_address = self.get_address();
+        let current_address = self.address();
         let new_address = current_address.wrapping_add(value as u16);
         self.high_byte = (new_address >> 8) as u8;
         self.low_byte = new_address as u8;

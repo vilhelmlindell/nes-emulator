@@ -1,6 +1,18 @@
 pub trait Mapper {
     fn read(&self, address: u16) -> u8;
+    fn read_word(&self, address: u16) -> u16 {
+        let low = self.read(address) as u16;
+        let high = self.read(address.wrapping_add(1)) as u16;
+        (high << 8) | low
+    }
     fn write(&mut self, address: u16, value: u8);
+    fn write_word(&mut self, address: u16, value: u16) {
+        let low_byte = (value & 0xFF) as u8;
+        let high_byte = ((value >> 8) & 0xFF) as u8;
+
+        self.write(address, low_byte);
+        self.write(address.wrapping_add(1), high_byte);
+    }
 }
 
 pub struct NromMapper {

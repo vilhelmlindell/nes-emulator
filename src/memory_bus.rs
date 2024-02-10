@@ -7,6 +7,16 @@ const RAM_MIRROR_MASK: u16 = 0x0800 - 1;
 const PPU_REGISTERS: u16 = 0x2000;
 const PPU_REGISTERS_MIRRORS_END: u16 = 0x3FFF;
 
+const PPUCTRL: u16 = 0x2000;
+const PPUMASK: u16 = 0x2001;
+const PPUSTATUS: u16 = 0x2002;
+const OAMADDR: u16 = 0x2003;
+const OAMDATA: u16 = 0x2004;
+const PPUSCROLL: u16 = 0x2005;
+const PPUADDR: u16 = 0x2006;
+const PPUDATA: u16 = 0x2007;
+const OAMDMA: u16 = 0x4014;
+
 pub struct MemoryBus {
     cpu_vram: [u8; 2048],
     ppu: Ppu,
@@ -31,23 +41,23 @@ impl MemoryBus {
     }
 }
 
-impl MemoryBus {
-    pub fn read(&self, address: u16) -> u8 {
+impl Mapper for MemoryBus {
+    fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x07FF => self.cpu_vram[address as usize],
             0x0800..=0x1FFF => {
                 let mirrored_down_address = address & 0x07FF;
                 self.read(mirrored_down_address)
             }
-            0x2002 => {
+            PPUSTATUS => {
                 unimplemented!("PPU register not implemented");
             }
-            0x2004 => {
+            OAMDATA => {
                 unimplemented!("PPU register not implemented");
             }
-            0x2007 => self.ppu.read_ppudata(),
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
-                panic!("Address {} is a write only PPU register and read", address);
+            PPUDATA => self.ppu.read_ppudata(),
+            PPUCTRL | PPUMASK | OAMADDR | PPUSCROLL | PPUADDR | OAMDMA => {
+                panic!("Address {} is a write only PPU register and reading from it is not allowed", address);
             }
             0x2008..=0x3FFF => {
                 let mirror_down_address = (address & 0x2007) % 0x800;
@@ -63,29 +73,27 @@ impl MemoryBus {
             }
         }
     }
-    pub fn read_word(&self, address: u16) -> u16 {
-        let low = self.read(address) as u16;
-        let high = self.read(address.wrapping_add(1)) as u16;
-        (high << 8) | low
-    }
 
-    pub fn write(&mut self, address: u16, value: u8) {
+    fn write(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x1FFF => {
                 // 2 KB internal RAM mirrored every 0x0800 bytes
                 let mirror_down_address = address & RAM_MIRROR_MASK; // Same as module 0x800
                 self.cpu_vram[mirror_down_address as usize] = value;
             }
-            0x2000 => self.ppu.write_control(value),
-            0x2001 => {}
-            0x2002 => {}
-            0x2003 => {}
-            0x2004 => {}
-            0x2005 => {}
-            0x2006 => {}
-            0x2007 => {
+            PPUCTRL => self.ppu.write_control(value),
+            PPUMASK => {}
+            PPUSTATUS => {
+                panic!("Address {} is a read only PPU register and writing to it is not allowed", address);
+            }
+            OAMADDR => {}
+            OAMDATA => {}
+            PPUSCROLL => {}
+            PPUADDR => {}
+            PPUDATA => {
                 self.ppu.write_ppudata(value);
             }
+            OAMDMA => {}
 
             0x2008..=0x3FFF => {
                 // Mirrors of $2000–$2007 (repeats every 8 bytes)
@@ -101,12 +109,5 @@ impl MemoryBus {
                 self.mapper.write(address, value);
             }
         }
-    }
-    pub fn write_word(&mut self, address: u16, value: u16) {
-        let low_byte = (value & 0xFF) as u8;
-        let high_byte = ((value >> 8) & 0xFF) as u8;
-
-        self.write(address, low_byte);
-        self.write(address.wrapping_add(1), high_byte);
     }
 }
