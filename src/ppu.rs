@@ -13,6 +13,7 @@ pub struct Ppu {
 
     cycle: u32,
     scanline: u32,
+    frame: Frame,
     frame: u32,
     //v: u16,
     //t: u16,
@@ -54,16 +55,46 @@ impl Ppu {
 
     pub fn write_scroll(&mut self, value: u8) {
         if self.w {
-            self.x_scroll = value;
+            // First write (vertical scroll value)
+            self.t = (self.t & 0x73FF) | ((value as u16 & 0x07) << 12); // t: ....FED CBA.. .... = d: ..HG FEDC
+            self.t = (self.t & 0x0C1F) | ((value as u16 & 0xF8) << 2); // t: .HG. .... .CBA = d: BA98 7654
+            self.w = false;
         } else {
-            self.y_scroll = value;
+            // Second write (horizontal scroll value)
+            self.t = (self.t & 0x7FE0) | (value as u16 >> 3); // t: .... .... .HG. FEDC BA98 = d: HGFE DCBA
+            self.x = value & 0x07; // x: .... .HG. = d: .... ...HGF
+            self.w = true;
         }
+    }
+
+    fn nametable_byte(&self) -> u8 {
+        let address = 0x2000 | (self.vram_address.address() & 0x0FFF);
+        self.read(address)
+    }
+
+    fn pattern_table_address(&self) -> u16 {
+        let bit_plane = 0b1000;
+        let fine_y = (self.vram_address.address() & 0x7000) >> 12;
+        let address = bit_plane | (self.nametable_byte() << 4) as u16 | fine_y as u16;
+        address
+    }
+
+    fn attribute_table_byte(&self) -> u8 {
+        let address = 0b10001111000000
+            | (self.vram_address.address() & 0b110000000000)
+            | (self.vram_address.address() >> 2)
+            | (self.vram_address.address() >> 4) & 0b111000;
+        self.read(address)
     }
 
     pub fn step(&mut self) {
         match self.cycle {
             0 => {}
-            1..=256 => {}
+            1..=256 => {
+                let pattern_table_address = self.pattern_table_address() as usize;
+                let low_bytes = &self.chr_rom[pattern_table_address..(pattern_table_address + 8)];
+                let high_bytes = &self.chr_rom[pattern_table_address..(pattern_table_address + 8)];
+            }
             257..=320 => {}
             337..=340 => {}
         }
@@ -77,31 +108,6 @@ impl Ppu {
                 self.frame += 1;
             }
         }
-    }
-
-    fn fetch_nametable_byte(&self) -> u8 {
-        let nametable_flag = self.control.intersection(ControlFlags::BaseNametableMask).bits();
-        let base_address = match nametable_flag {
-            0 => 0x2000,
-            1 => 0x2400,
-            2 => 0x2800,
-            3 => 0x2C00,
-            _ => unreachable!(),
-        };
-        //let address = ((nametable_flag as u16) << 10) | 1 << 13 | self.x_scroll as u16 | ((self.y_scroll as u16) << 5);
-        let address = base_address | self.x_scroll as u16 | ((self.y_scroll as u16) << 5);
-        self.read(address)
-    }
-    fn fetch_pattern_table_tile(&self) {
-        let fine_y = (self.vram_address.address() & 0x7000) >> 12;
-    }
-
-    fn fetch_attribute_table_byte(&self) -> u8 {
-        let address = 0x23C0
-            | (self.vram_address.address() & 0x0C00)
-            | ((self.vram_address.address() >> 4) & 0x38)
-            | ((self.vram_address.address() >> 2) & 0x07);
-        self.read(address)
     }
 }
 

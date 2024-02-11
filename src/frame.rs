@@ -15,16 +15,23 @@ pub static SYSTEM_PALLETE: [(u8,u8,u8); 64] = [
    (0x99, 0xFF, 0xFC), (0xDD, 0xDD, 0xDD), (0x11, 0x11, 0x11), (0x11, 0x11, 0x11)
 ];
 
+type Rgb = (u8, u8, u8);
+
 pub struct Frame {
-    pub pixels: [[(u8, u8, u8); Frame::HEIGHT]; Frame::WIDTH],
+    pub pixels: [[Rgb; Frame::HEIGHT]; Frame::WIDTH],
+    pub palettes: [[Rgb; 4]; 8],
 }
 
 impl Frame {
     const WIDTH: usize = 256;
     const HEIGHT: usize = 240;
 
-    pub fn set_pixel(&mut self, x: usize, y: usize, rgb: (u8, u8, u8)) {
+    pub fn set_pixel(&mut self, x: usize, y: usize, rgb: Rgb) {
         self.pixels[x][y] = rgb;
     }
-    pub fn show_tile(chr_rom: Vec<u8>) {}
+    pub fn draw_tile(&mut self, low_bytes: &[u8], high_bytes: &[u8], palette: [(u8, u8, u8); 3]) {
+        for x in 0..8 {
+            for y in 0..8 {}
+        }
+    }
 }
