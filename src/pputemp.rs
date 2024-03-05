@@ -5,19 +5,12 @@ use crate::{mapper::Mapper, rom::Mirroring};
 
 const VRAM_SIZE: usize = 2048;
 
-enum SpriteEvaluationState {
-    Copying,
-    Evaluation,
-    OverflowLogic,
-}
-
 type Rgb = (u8, u8, u8);
 
 pub struct Ppu {
     vram: [u8; VRAM_SIZE],
     vram_address: VramAddress,
     control: ControlFlags,
-    status: StatusFlags,
     chr_rom: Vec<u8>,
     screen_mirroring: Mirroring,
 
@@ -29,22 +22,56 @@ pub struct Ppu {
     pattern_table_high_byte: u8,
     frame: Frame,
     palettes: [[Rgb; 4]; 8],
-    oam: [u8; 256],
+    oam_data: [Sprite; 64],
     oam_address: u8,
-    oam_data: u8,
-    secondary_oam: [u8; 32],
-    secondary_oam_address: usize,
-    sprite_evaluation_state: SpriteEvaluationState,
-    cycles_to_wait: u32,
-    secondary_oam_writes_disabled: bool,
-    n: usize,
-    m: usize,
+    oam_data_register: u8,
+    secondary_oam: [Sprite; 8],
+    next_sprite_slot: usize,
     //v: u16,
     //t: u16,
     //x: u8,
     //x_scroll: u8,
     //y_scroll: u8,
     //w: bool,
+}
+
+#[derive(Copy, Clone)]
+pub struct Sprite {
+    y: u8,
+    tile: u8,
+    attribute: u8,
+    x: u8,
+}
+
+impl Sprite {
+    pub fn read_byte(&self, n: usize) -> u8 {
+        match n {
+            0 => self.y,
+            1 => self.tile,
+            2 => self.attribute,
+            3 => self.x,
+            _ => panic!("Invalid sprite read byte, byte index {} is outside the valid range of indices", n),
+        }
+    }
+    pub fn write_byte(&mut self, n: usize, value: u8) {
+        match n {
+            0 => self.y = value,
+            1 => self.tile = value,
+            2 => self.attribute = value,
+            3 => self.x = value,
+            _ => panic!("Invalid sprite read write, byte index {} is outside the valid range of indices", n),
+        }
+    }
+}
+impl Default for Sprite {
+    fn default() -> Self {
+        Self {
+            y: 0,
+            tile: 0,
+            attribute: 0,
+            x: 0,
+        }
+    }
 }
 
 impl Ppu {
@@ -63,8 +90,8 @@ impl Ppu {
             pattern_table_low_byte: todo!(),
             pattern_table_high_byte: todo!(),
             palettes: todo!(),
-            oam_data: todo!(),
-            secondary_oam: todo!(),
+            oam_data: [Sprite::default(); 64],
+            secondary_oam: [Sprite::default(); 8],
         }
     }
 
@@ -84,7 +111,9 @@ impl Ppu {
         self.control = ControlFlags::from_bits_truncate(value);
     }
     pub fn write_oam_data(&mut self, value: u8) {
-        self.oam[self.oam_address as usize] = value;
+        let sprite_index = (self.oam_address / 4) as usize;
+        let byte_index = (self.oam_address % 4) as usize;
+        self.oam_data[sprite_index].write_byte(byte_index, value);
         self.oam_address += 1;
     }
 
@@ -92,7 +121,9 @@ impl Ppu {
         if self.cycle >= 1 && self.cycle <= 64 {
             return 0xFF;
         }
-        self.oam[self.oam_address as usize]
+        let sprite_index = (self.oam_address / 4) as usize;
+        let byte_index = (self.oam_address % 4) as usize;
+        self.oam_data[sprite_index].read_byte(byte_index)
     }
 
     //pub fn write_scroll(&mut self, value: u8) {
@@ -166,85 +197,47 @@ impl Ppu {
             337..=340 => {}
         }
 
+        let sprite_height = if self.control.contains(ControlFlags::SpriteSize) { 16 } else { 8 };
+
+        let is_sprite_in_range = |y: u8| (y >= self.scanline) && (y + sprite_height) <= self.scanline;
+
+        match self.cycle {
+            1..=64 => {}
+            65..=256 => {
+                if self.cycle % 2 != 0 {
+                    self.oam_data_register = self.oam_data[self.oam_address as usize / 4].read_byte(self.oam_address as usize % 4);
+                    return;
+                } else {
+                }
+
+                let mut n = 0;
+
+                let sprite = self.oam_data[n];
+
+                let sprite_width = 8;
+
+                if self.next_sprite_slot < 8 {
+                    self.oam_data[self.next_sprite_slot].y = sprite.y;
+
+                    if (sprite.y >= self.scanline) && (sprite.y + sprite_height) <= self.scanline {
+                        self.oam_data[self.next_sprite_slot] = sprite;
+                    }
+                }
+
+                n += 1;
+
+                if self.next_sprite_slot < 8 {}
+
+                let mut m = 0;
+            }
+        }
+
         self.cycle += 1;
         if self.cycle > 340 {
             self.cycle = 0;
             self.scanline += 1;
             if self.scanline > 261 {
                 self.scanline = 0;
-            }
-        }
-    }
-
-    fn sprite_evaluation(&self) {
-        if self.cycle == 65 {
-            self.secondary_oam_address = 0;
-        }
-
-        if self.cycles_to_wait != 0 {
-            self.cycles_to_wait -= 1;
-            return;
-        }
-
-        if self.cycle % 2 != 0 {
-            self.oam_data = self.oam[self.oam_address as usize];
-            return;
-        }
-
-        let sprite_height = if self.control.contains(ControlFlags::SpriteSize) { 16 } else { 8 };
-
-        match self.sprite_evaluation_state {
-            SpriteEvaluationState::Copying => {
-                self.cycles_to_wait = 2;
-
-                let y = self.oam[self.n * 4];
-
-                if !(self.secondary_oam_address == 8 || self.n == 64) {
-                    self.secondary_oam[self.secondary_oam_address * 4] = y
-                }
-
-                let is_in_range = (y >= self.scanline) && (y + sprite_height) <= self.scanline;
-
-                if !is_in_range {
-                    self.sprite_evaluation_state = SpriteEvaluationState::Evaluation;
-                }
-
-                self.cycles_to_wait += 6;
-
-                self.secondary_oam[(self.secondary_oam_address * 4 + 1)..=(self.secondary_oam_address * 4 + 3)]
-                    .copy_from_slice(&self.oam[(self.n * 4 + 1)..=(self.n * 4 + 3)]);
-            }
-            SpriteEvaluationState::Evaluation => {
-                self.cycles_to_wait = 2;
-
-                self.n += 1;
-
-                // All 64 sprites have been evaluated
-                if self.n == 64 {
-                    self.secondary_oam_writes_disabled = true;
-                    self.sprite_evaluation_state = SpriteEvaluationState::Copying;
-                }
-                // Fewer than 8 sprites have been found
-                if self.secondary_oam_address < 8 {
-                    self.sprite_evaluation_state = SpriteEvaluationState::Copying;
-                }
-                // Exactly 8 sprites have been found
-                if self.secondary_oam_address == 8 {
-                    self.secondary_oam_writes_disabled = true;
-                    self.sprite_evaluation_state = SpriteEvaluationState::OverflowLogic;
-                }
-            }
-            SpriteEvaluationState::OverflowLogic => {
-                let y = self.oam[self.n * 4 + self.m];
-
-                let is_in_range = (y >= self.scanline) && (y + sprite_height) <= self.scanline;
-
-                if is_in_range {
-                    self.cycles_to_wait = 7;
-
-                    self.status.set(StatusFlags::SpriteOverflow, true);
-                } else {
-                }
             }
         }
     }
@@ -303,24 +296,14 @@ impl VramAddress {
 
 bitflags! {
     #[derive(Debug, PartialEq, Eq)]
-    pub struct StatusFlags: u8 {
-        const PpuOpenBus= 0b0001_1111;
-        const SpriteOverflow = 0b0010_0000;
-        const SpriteZeroHit = 0b0100_0000;
-        const VerticalBlankStarted = 0b1000_0000;
-    }
-}
-
-bitflags! {
-    #[derive(Debug, PartialEq, Eq)]
     pub struct ControlFlags: u8 {
         const BaseNametableMask = 0b00000011;
-        const VramAddressIncrement = 0b00000100;
+        const VRAMAddressIncrement = 0b00000100;
         const SpritePatternTableAddress = 0b00001000;
         const BackgroundPatternTableAddress = 0b00010000;
         const SpriteSize = 0b00100000;
-        const PpuMasterSlaveSelect = 0b01000000;
-        const GenerateNmi = 0b10000000;
+        const PPUMasterSlaveSelect = 0b01000000;
+        const GenerateNMI = 0b10000000;
     }
 }
 

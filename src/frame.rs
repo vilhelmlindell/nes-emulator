@@ -19,7 +19,14 @@ type Rgb = (u8, u8, u8);
 
 pub struct Frame {
     pub pixels: [[Rgb; Frame::HEIGHT]; Frame::WIDTH],
-    pub palettes: [[Rgb; 4]; 8],
+}
+
+impl Default for Frame {
+    fn default() -> Self {
+        Self {
+            pixels: [[(0, 0, 0); Frame::HEIGHT]; Frame::WIDTH],
+        }
+    }
 }
 
 impl Frame {
@@ -28,10 +35,5 @@ impl Frame {
 
     pub fn set_pixel(&mut self, x: usize, y: usize, rgb: Rgb) {
         self.pixels[x][y] = rgb;
-    }
-    pub fn draw_tile(&mut self, low_bytes: &[u8], high_bytes: &[u8], palette: [(u8, u8, u8); 3]) {
-        for x in 0..8 {
-            for y in 0..8 {}
-        }
     }
 }

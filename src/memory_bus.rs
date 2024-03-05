@@ -52,10 +52,8 @@ impl Mapper for MemoryBus {
             PPUSTATUS => {
                 unimplemented!("PPU register not implemented");
             }
-            OAMDATA => {
-                unimplemented!("PPU register not implemented");
-            }
-            PPUDATA => self.ppu.read_ppudata(),
+            OAMDATA => self.ppu.read_oam_data(),
+            PPUDATA => self.ppu.read_ppu_data(),
             PPUCTRL | PPUMASK | OAMADDR | PPUSCROLL | PPUADDR | OAMDMA => {
                 panic!("Address {} is a write only PPU register and reading from it is not allowed", address);
             }
@@ -91,9 +89,13 @@ impl Mapper for MemoryBus {
             PPUSCROLL => {}
             PPUADDR => {}
             PPUDATA => {
-                self.ppu.write_ppudata(value);
+                self.ppu.write_ppu_data(value);
             }
-            OAMDMA => {}
+            OAMDMA => {
+                let oam_data_slice = &self.cpu_vram[0x0200..0x02FF];
+                let oam_data: &[u8; 256] = oam_data_slice.try_into().expect("slice with incorrect length");
+                self.ppu.write_oam_dma(oam_data);
+            }
 
             0x2008..=0x3FFF => {
                 // Mirrors of $2000–$2007 (repeats every 8 bytes)
