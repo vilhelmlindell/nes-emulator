@@ -1,3 +1,4 @@
+use crate::mapper::Mapper;
 use crate::memory_bus::MemoryBus;
 use crate::opcodes::{Instruction, CPU_OPCODES};
 use std::intrinsics::wrapping_add;

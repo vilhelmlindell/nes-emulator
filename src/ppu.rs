@@ -1,4 +1,4 @@
-use bitflags::{bitflags, Flags};
+use bitflags::bitflags;
 
 use crate::frame::Frame;
 use crate::{mapper::Mapper, rom::Mirroring};
@@ -57,14 +57,23 @@ impl Ppu {
             screen_mirroring,
             cycle: 0,
             scanline: 0,
-            frame: Frame::default(),
             nametable_byte: todo!(),
             attribute_byte: todo!(),
             pattern_table_low_byte: todo!(),
             pattern_table_high_byte: todo!(),
+            frame: Frame::default(),
             palettes: todo!(),
             oam_data: todo!(),
             secondary_oam: todo!(),
+            status: todo!(),
+            oam: todo!(),
+            oam_address: todo!(),
+            secondary_oam_address: todo!(),
+            sprite_evaluation_state: todo!(),
+            cycles_to_wait: todo!(),
+            secondary_oam_writes_disabled: todo!(),
+            n: todo!(),
+            m: todo!(),
         }
     }
 
@@ -102,7 +111,7 @@ impl Ppu {
     //        self.t = (self.t & 0x0C1F) | ((value as u16 & 0xF8) << 2); // t: .HG. .... .CBA = d: BA98 7654
     //        self.w = false;
     //    } else {
-    //        // Second write (horizontal scroll value)
+    //        // yecond write (horizontal scroll value)
     //        self.t = (self.t & 0x7FE0) | (value as u16 >> 3); // t: .... .... .HG. FEDC BA98 = d: HGFE DCBA
     //        self.x = value & 0x07; // x: .... .HG. = d: .... ...HGF
     //        self.w = true;
@@ -195,8 +204,6 @@ impl Ppu {
 
         match self.sprite_evaluation_state {
             SpriteEvaluationState::Copying => {
-                self.cycles_to_wait = 2;
-
                 let y = self.oam[self.n * 4];
 
                 if !(self.secondary_oam_address == 8 || self.n == 64) {
@@ -209,10 +216,16 @@ impl Ppu {
                     self.sprite_evaluation_state = SpriteEvaluationState::Evaluation;
                 }
 
-                self.cycles_to_wait += 6;
+                if self.cycle % 2 == 0 {
+                    self.secondary_oam[self.secondary_oam_address * 4 + self.m] = self.oam[self.n * 4 + self.m]
+                }
 
-                self.secondary_oam[(self.secondary_oam_address * 4 + 1)..=(self.secondary_oam_address * 4 + 3)]
-                    .copy_from_slice(&self.oam[(self.n * 4 + 1)..=(self.n * 4 + 3)]);
+                // This implementation wont be cycle accurate since it copies before
+                //self.secondary_oam[(self.secondary_oam_address * 4 + 1)..=(self.secondary_oam_address * 4 + 3)]
+                //    .copy_from_slice(&self.oam[(self.n * 4 + 1)..=(self.n * 4 + 3)]);
+
+                //self.secondary_oam[(self.secondary_oam_address * 4 + 1)..=(self.secondary_oam_address * 4 + 3)]
+                //    .copy_from_slice(&self.oam[(self.n * 4 + 1)..=(self.n * 4 + 3)]);
             }
             SpriteEvaluationState::Evaluation => {
                 self.cycles_to_wait = 2;
@@ -328,7 +341,7 @@ impl ControlFlags {
     // Method to extract the VRAM address increment value
     pub fn vram_address_increment(&self) -> u8 {
         match *self {
-            Self::VRAMAddressIncrement => 32,
+            Self::VramAddressIncrement => 32,
             _ => 1,
         }
     }
