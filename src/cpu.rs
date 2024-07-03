@@ -19,7 +19,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(memory_bus: MemoryBus) -> Cpu {
+    pub fn new(mut memory_bus: MemoryBus) -> Cpu {
         Cpu {
             pc: memory_bus.read_word(RESET_VECTOR),
             sp: SP_START,

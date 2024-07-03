@@ -145,9 +145,15 @@ impl Ppu {
 
     pub fn step(&mut self) {
         self.render();
-        self.sprite_evaluation();
 
-        match self.cycle {}
+        match self.cycle {
+            1..=64 => {}
+            65..=256 => {
+                self.sprite_evaluation();
+            }
+            257..=320 => {}
+            321..=340 => {}
+        }
 
         // Increment the cycle and handle the end of scanlines and frames
         self.cycle += 1;
