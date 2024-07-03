@@ -10,9 +10,6 @@ use sdl2::pixels::Color;
 use std::env;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::time::Duration;
-use std::time::Duration;
-
 mod cpu;
 mod frame;
 mod instructions;

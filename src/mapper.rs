@@ -1,6 +1,6 @@
 pub trait Mapper {
-    fn read(&self, address: u16) -> u8;
-    fn read_word(&self, address: u16) -> u16 {
+    fn read(&mut self, address: u16) -> u8;
+    fn read_word(&mut self, address: u16) -> u16 {
         let low = self.read(address) as u16;
         let high = self.read(address.wrapping_add(1)) as u16;
         (high << 8) | low
@@ -27,7 +27,7 @@ impl NromMapper {
 }
 
 impl Mapper for NromMapper {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             0x4020..=0x7FFF => self.prg_ram[(address - 0x4020) as usize],
             0x8000..=0xFFFF => {

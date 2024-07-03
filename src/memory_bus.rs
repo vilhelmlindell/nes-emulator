@@ -42,7 +42,7 @@ impl MemoryBus {
 }
 
 impl Mapper for MemoryBus {
-    fn read(&self, address: u16) -> u8 {
+    fn read(&mut self, address: u16) -> u8 {
         match address {
             0x0000..=0x07FF => self.cpu_vram[address as usize],
             0x0800..=0x1FFF => {
