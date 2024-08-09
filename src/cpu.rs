@@ -19,7 +19,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(memory_bus: MemoryBus) -> Cpu {
+    pub fn new(mut memory_bus: MemoryBus) -> Cpu {
         Cpu {
             pc: memory_bus.read_word(RESET_VECTOR),
             sp: SP_START,
@@ -40,14 +40,22 @@ impl Cpu {
         self.status = STATUS_DEFAULT;
         self.cycles = 7;
     }
-    pub fn fetch(&self) -> Instruction {
+    pub fn instruction_cycle(&mut self) {
+        let instruction = self.fetch();
+        let cycles = self.execute(&instruction);
+        self.cycles += cycles as u32;
+        for _ in 0..cycles * 3 {
+            self.memory_bus.ppu.step();
+        }
+    }
+    pub fn fetch(&mut self) -> Instruction {
         let opcode = self.memory_bus.read(self.pc) as usize;
         CPU_OPCODES[opcode].clone().unwrap_or_else(|| panic!("Invalid opcode: {:X}", opcode))
     }
-    pub fn execute(&mut self, instruction: &Instruction) {
+    pub fn execute(&mut self, instruction: &Instruction) -> u8 {
         self.pc += 1;
         (instruction.function)(self, instruction.addressing_mode);
-        self.cycles += instruction.cycles as u32;
+        instruction.cycles
     }
     pub fn run(&mut self) {
         loop {
@@ -55,7 +63,7 @@ impl Cpu {
             self.execute(&instruction);
         }
     }
-    pub fn execution_trace(&self, instruction: &Instruction) -> String {
+    pub fn execution_trace(&mut self, instruction: &Instruction) -> String {
         let mut output = format!("{:04X}  ", self.pc);
         for i in 0..3 {
             if i < instruction.bytes {

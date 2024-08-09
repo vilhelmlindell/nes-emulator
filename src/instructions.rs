@@ -1,4 +1,5 @@
 use crate::cpu::{AddressingMode, Cpu, ProcessorStatus, RESET_VECTOR};
+use crate::mapper::Mapper;
 
 pub trait InstructionSet {
     fn adc(&mut self, mode: AddressingMode); // Add with Carry

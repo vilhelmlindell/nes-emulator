@@ -1,3 +1,5 @@
+use bitflags::Flags;
+
 use crate::mapper::{Mapper, NromMapper};
 use crate::ppu::Ppu;
 use crate::rom::Rom;
@@ -18,10 +20,10 @@ const PPUDATA: u16 = 0x2007;
 const OAMDMA: u16 = 0x4014;
 
 pub struct MemoryBus {
-    cpu_vram: [u8; 2048],
-    ppu: Ppu,
-    apu_io_registers: [u8; 0x20],
-    mapper: Box<dyn Mapper>,
+    pub cpu_vram: [u8; 2048],
+    pub ppu: Ppu,
+    pub apu_io_registers: [u8; 0x20],
+    pub mapper: Box<dyn Mapper>,
 }
 
 impl MemoryBus {
@@ -49,11 +51,9 @@ impl Mapper for MemoryBus {
                 let mirrored_down_address = address & 0x07FF;
                 self.read(mirrored_down_address)
             }
-            PPUSTATUS => {
-                unimplemented!("PPU register not implemented");
-            }
+            PPUSTATUS => self.ppu.read_status().bits(),
             OAMDATA => self.ppu.read_oam_data(),
-            PPUDATA => self.ppu.read_ppu_data(),
+            PPUDATA => self.ppu.read_ppudata(),
             PPUCTRL | PPUMASK | OAMADDR | PPUSCROLL | PPUADDR | OAMDMA => {
                 panic!("Address {} is a write only PPU register and reading from it is not allowed", address);
             }
@@ -86,17 +86,18 @@ impl Mapper for MemoryBus {
             }
             OAMADDR => {}
             OAMDATA => {}
-            PPUSCROLL => {}
-            PPUADDR => {}
+            PPUSCROLL => {
+                self.ppu.write_scroll(value);
+            }
+            PPUADDR => self.ppu.write_ppuaddr(value),
             PPUDATA => {
-                self.ppu.write_ppu_data(value);
+                self.ppu.write_ppudata(value);
             }
             OAMDMA => {
                 let oam_data_slice = &self.cpu_vram[0x0200..0x02FF];
                 let oam_data: &[u8; 256] = oam_data_slice.try_into().expect("slice with incorrect length");
                 self.ppu.write_oam_dma(oam_data);
             }
-
             0x2008..=0x3FFF => {
                 // Mirrors of $2000–$2007 (repeats every 8 bytes)
                 let mirror_down_address = (address & 0x2007) % 0x800;
@@ -111,5 +112,19 @@ impl Mapper for MemoryBus {
                 self.mapper.write(address, value);
             }
         }
+    }
+
+    fn read_word(&mut self, address: u16) -> u16 {
+        let low = self.read(address) as u16;
+        let high = self.read(address.wrapping_add(1)) as u16;
+        (high << 8) | low
+    }
+
+    fn write_word(&mut self, address: u16, value: u16) {
+        let low_byte = (value & 0xFF) as u8;
+        let high_byte = ((value >> 8) & 0xFF) as u8;
+
+        self.write(address, low_byte);
+        self.write(address.wrapping_add(1), high_byte);
     }
 }

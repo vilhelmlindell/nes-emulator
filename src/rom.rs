@@ -2,6 +2,7 @@
 pub enum Mirroring {
     Vertical,
     Horizontal,
+    SingleScreen,
     FourScreen,
 }
 
