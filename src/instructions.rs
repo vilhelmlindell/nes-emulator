@@ -1,3 +1,5 @@
+use bitflags::Flags;
+
 use crate::cpu::{AddressingMode, Cpu, ProcessorStatus, RESET_VECTOR};
 use crate::mapper::Mapper;
 
@@ -66,20 +68,20 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address);
 
-        let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
+        let carry_flag = if self.status.contains(ProcessorStatus::Carry) { 1 } else { 0 };
 
         let (sum, overflow1) = self.a.overflowing_add(operand);
         let (sum_with_carry, overflow2) = sum.overflowing_add(carry_flag);
 
         let overflow = (self.a ^ operand) & 0x80 == 0 && (self.a ^ sum_with_carry) & 0x80 != 0;
 
-        self.set_status(ProcessorStatus::Carry, overflow1 || overflow2);
+        self.status.set(ProcessorStatus::Carry, overflow1 || overflow2);
 
         self.a = sum_with_carry;
 
         self.update_zero_and_negative_flags(self.a);
 
-        self.set_status(ProcessorStatus::Overflow, overflow);
+        self.status.set(ProcessorStatus::Overflow, overflow);
     }
 
     fn and(&mut self, mode: AddressingMode) {
@@ -101,7 +103,7 @@ impl InstructionSet for Cpu {
 
         operand <<= 1;
 
-        self.set_status(ProcessorStatus::Carry, carry);
+        self.status.set(ProcessorStatus::Carry, carry);
         self.update_zero_and_negative_flags(operand);
 
         if mode == AddressingMode::NoneAddressing {
@@ -114,7 +116,7 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if !self.status(ProcessorStatus::Carry) {
+        if !self.status.contains(ProcessorStatus::Carry) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -124,7 +126,7 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if self.status(ProcessorStatus::Carry) {
+        if self.status.contains(ProcessorStatus::Carry) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -134,7 +136,7 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if self.status(ProcessorStatus::Zero) {
+        if self.status.contains(ProcessorStatus::Zero) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -145,15 +147,15 @@ impl InstructionSet for Cpu {
         let operand = self.memory_bus.read(operand_address);
         let result = self.a & operand;
 
-        self.set_status(ProcessorStatus::Zero, result == 0);
-        self.set_status(ProcessorStatus::Overflow, operand & 0b0100_0000 != 0);
-        self.set_status(ProcessorStatus::Negative, operand & 0b1000_0000 != 0);
+        self.status.set(ProcessorStatus::Zero, result == 0);
+        self.status.set(ProcessorStatus::Overflow, operand & 0b0100_0000 != 0);
+        self.status.set(ProcessorStatus::Negative, operand & 0b1000_0000 != 0);
     }
     fn bmi(&mut self, mode: AddressingMode) {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if self.status(ProcessorStatus::Negative) {
+        if self.status.contains(ProcessorStatus::Negative) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -163,7 +165,7 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if !self.status(ProcessorStatus::Zero) {
+        if !self.status.contains(ProcessorStatus::Zero) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -173,7 +175,7 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if !self.status(ProcessorStatus::Negative) {
+        if !self.status.contains(ProcessorStatus::Negative) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -182,14 +184,14 @@ impl InstructionSet for Cpu {
     fn brk(&mut self, _mode: AddressingMode) {
         self.push_word(self.pc);
         // https://www.nesdev.org/wiki/Status_flags#The_B_flag
-        self.push(self.status | 0b0001_0000);
+        self.push(self.status.bits() | 0b0001_0000);
         self.pc = self.memory_bus.read_word(RESET_VECTOR);
     }
     fn bvc(&mut self, mode: AddressingMode) {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if !self.status(ProcessorStatus::Overflow) {
+        if !self.status.contains(ProcessorStatus::Overflow) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
@@ -199,23 +201,23 @@ impl InstructionSet for Cpu {
         let operand_address = self.operand_address(mode);
         let operand = self.memory_bus.read(operand_address) as i8;
 
-        if self.status(ProcessorStatus::Overflow) {
+        if self.status.contains(ProcessorStatus::Overflow) {
             let old_pc = self.pc;
             self.pc = self.pc.wrapping_add_signed(operand as i16);
             self.count_branch_cycles(old_pc, mode);
         }
     }
     fn clc(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::Carry, false);
+        self.status.set(ProcessorStatus::Carry, false);
     }
     fn cld(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::DecimalMode, false);
+        self.status.set(ProcessorStatus::DecimalMode, false);
     }
     fn cli(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::InterruptDisable, false);
+        self.status.set(ProcessorStatus::InterruptDisable, false);
     }
     fn clv(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::Overflow, false);
+        self.status.set(ProcessorStatus::Overflow, false);
     }
     fn cmp(&mut self, mode: AddressingMode) {
         let old_pc = self.pc;
@@ -226,9 +228,9 @@ impl InstructionSet for Cpu {
 
         // Check if there was no borrow during subtraction
         if self.a >= operand {
-            self.set_status(ProcessorStatus::Carry, true);
+            self.status.set(ProcessorStatus::Carry, true);
         } else {
-            self.set_status(ProcessorStatus::Carry, false);
+            self.status.set(ProcessorStatus::Carry, false);
         }
         self.update_zero_and_negative_flags(result);
     }
@@ -239,9 +241,9 @@ impl InstructionSet for Cpu {
 
         // Check if there was no borrow during subtraction
         if self.x >= operand {
-            self.set_status(ProcessorStatus::Carry, true);
+            self.status.set(ProcessorStatus::Carry, true);
         } else {
-            self.set_status(ProcessorStatus::Carry, false);
+            self.status.set(ProcessorStatus::Carry, false);
         }
 
         self.update_zero_and_negative_flags(result);
@@ -254,9 +256,9 @@ impl InstructionSet for Cpu {
 
         // Check if there was no borrow during subtraction
         if self.y >= operand {
-            self.set_status(ProcessorStatus::Carry, true);
+            self.status.set(ProcessorStatus::Carry, true);
         } else {
-            self.set_status(ProcessorStatus::Carry, false);
+            self.status.set(ProcessorStatus::Carry, false);
         }
 
         self.update_zero_and_negative_flags(result);
@@ -346,7 +348,7 @@ impl InstructionSet for Cpu {
             self.memory_bus.read(operand_address)
         };
 
-        self.set_status(ProcessorStatus::Carry, operand & 0x01 != 0);
+        self.status.set(ProcessorStatus::Carry, operand & 0x01 != 0);
         operand >>= 1;
         self.update_zero_and_negative_flags(operand);
 
@@ -371,7 +373,7 @@ impl InstructionSet for Cpu {
     }
     fn php(&mut self, _mode: AddressingMode) {
         // https://www.nesdev.org/wiki/Status_flags#The_B_flag
-        self.push(self.status | 0b0001_0000);
+        self.push(self.status.bits() | 0b0001_0000);
     }
     fn pla(&mut self, _mode: AddressingMode) {
         let value = self.pull();
@@ -380,7 +382,7 @@ impl InstructionSet for Cpu {
     }
     fn plp(&mut self, _mode: AddressingMode) {
         let value = self.pull();
-        self.status = value;
+        self.status = ProcessorStatus::from_bits_truncate(value);
     }
     fn rol(&mut self, mode: AddressingMode) {
         let operand_address = self.operand_address(mode);
@@ -389,12 +391,12 @@ impl InstructionSet for Cpu {
             _ => self.memory_bus.read(operand_address),
         };
 
-        let carry = u8::from(self.status(ProcessorStatus::Carry));
+        let carry = u8::from(self.status.contains(ProcessorStatus::Carry));
         let new_carry = operand & 0b1000_0000 != 0;
 
         operand = (operand << 1) | carry;
 
-        self.set_status(ProcessorStatus::Carry, new_carry);
+        self.status.set(ProcessorStatus::Carry, new_carry);
         self.update_zero_and_negative_flags(operand);
 
         match mode {
@@ -409,12 +411,12 @@ impl InstructionSet for Cpu {
             _ => self.memory_bus.read(operand_address),
         };
 
-        let carry = u8::from(self.status(ProcessorStatus::Carry)) << 7;
+        let carry = u8::from(self.status.contains(ProcessorStatus::Carry)) << 7;
         let new_carry = operand & 0b0000_0001 != 0;
 
         operand = (operand >> 1) | carry;
 
-        self.set_status(ProcessorStatus::Carry, new_carry);
+        self.status.set(ProcessorStatus::Carry, new_carry);
         self.update_zero_and_negative_flags(operand);
 
         match mode {
@@ -423,7 +425,7 @@ impl InstructionSet for Cpu {
         };
     }
     fn rti(&mut self, _mode: AddressingMode) {
-        self.status = self.pull();
+        self.status = ProcessorStatus::from_bits_truncate(self.pull());
         self.pc = self.pull_word();
     }
     fn rts(&mut self, _mode: AddressingMode) {
@@ -435,29 +437,29 @@ impl InstructionSet for Cpu {
         self.count_page_crossing_cycles(old_pc, operand_address, mode);
         let operand = !self.memory_bus.read(operand_address);
 
-        let carry_flag = if self.status(ProcessorStatus::Carry) { 1 } else { 0 };
+        let carry_flag = if self.status.contains(ProcessorStatus::Carry) { 1 } else { 0 };
 
         let (sum, overflow1) = self.a.overflowing_add(operand);
         let (sum_with_carry, overflow2) = sum.overflowing_add(carry_flag);
 
         let overflow = (self.a ^ operand) & 0x80 == 0 && (self.a ^ sum_with_carry) & 0x80 != 0;
 
-        self.set_status(ProcessorStatus::Carry, overflow1 || overflow2);
+        self.status.set(ProcessorStatus::Carry, overflow1 || overflow2);
 
         self.a = sum_with_carry;
 
         self.update_zero_and_negative_flags(self.a);
 
-        self.set_status(ProcessorStatus::Overflow, overflow);
+        self.status.set(ProcessorStatus::Overflow, overflow);
     }
     fn sec(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::Carry, true);
+        self.status.set(ProcessorStatus::Carry, true);
     }
     fn sed(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::DecimalMode, true);
+        self.status.set(ProcessorStatus::DecimalMode, true);
     }
     fn sei(&mut self, _mode: AddressingMode) {
-        self.set_status(ProcessorStatus::InterruptDisable, true);
+        self.status.set(ProcessorStatus::InterruptDisable, true);
     }
     fn sta(&mut self, mode: AddressingMode) {
         let operand_address = self.operand_address(mode);

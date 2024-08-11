@@ -289,14 +289,16 @@ impl Ppu {
             240 => {}                 // Post-render scanline
             241..=260 => {
                 // Vertical blanking lines
-                if self.scanline == 241 && self.cycle == 1 {
+                if self.scanline == 241 && self.cycle == 0 {
                     self.status_register.set(StatusFlags::VerticalBlankStarted, true);
                 }
             } // Vertical blanking lines
             261 => {
                 // Pre-render scanline
                 //self.frame.canvas.present();
-                self.status_register.set(StatusFlags::VerticalBlankStarted, false);
+                if self.cycle == 0 {
+                    self.status_register.set(StatusFlags::VerticalBlankStarted, false);
+                }
             }
             _ => unreachable!("scanline should never be {}", self.scanline),
         };
@@ -306,9 +308,9 @@ impl Ppu {
         if self.cycle > 340 {
             self.cycle = 0;
 
-            //if self.cycle == 257 {
-            //    self.v = (self.v & 0b111_10_11111_00000) | (self.t & 0b111_10_11111_00000);
-            //}
+            if self.cycle == 257 {
+                self.v = (self.v & 0b111_10_11111_00000) | (self.t & 0b111_10_11111_00000);
+            }
 
             self.scanline += 1;
             if self.scanline > 261 {

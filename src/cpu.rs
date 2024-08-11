@@ -4,19 +4,21 @@ use crate::mapper::Mapper;
 use crate::memory_bus::MemoryBus;
 use crate::opcodes::{Instruction, CPU_OPCODES};
 use crate::ppu::{ControlFlags, StatusFlags};
+use bitflags::bitflags;
 use std::intrinsics::wrapping_add;
 
 pub const RESET_VECTOR: u16 = 0xFFFC;
 const SP_START: u8 = 0xFD;
 const STATUS_DEFAULT: u8 = 0b0010_0100;
+const NMI_ADDRESS: u16 = 0xFFFA;
 
 pub struct Cpu {
-    pub pc: u16,    // Program counter
-    pub sp: u8,     // Stack pointer
-    pub a: u8,      // Accumulator
-    pub x: u8,      // X register
-    pub y: u8,      // Y register
-    pub status: u8, // Status register
+    pub pc: u16,                 // Program counter
+    pub sp: u8,                  // Stack pointer
+    pub a: u8,                   // Accumulator
+    pub x: u8,                   // X register
+    pub y: u8,                   // Y register
+    pub status: ProcessorStatus, // Status register
     pub cycles: u32,
     pub memory_bus: MemoryBus, // Memory
 }
@@ -29,7 +31,7 @@ impl Cpu {
             a: 0,
             x: 0,
             y: 0,
-            status: STATUS_DEFAULT,
+            status: ProcessorStatus::from_bits_truncate(STATUS_DEFAULT),
             cycles: 0,
             memory_bus,
         }
@@ -40,7 +42,7 @@ impl Cpu {
         self.a = 0;
         self.x = 0;
         self.y = 0;
-        self.status = STATUS_DEFAULT;
+        self.status = ProcessorStatus::from_bits_truncate(STATUS_DEFAULT);
         self.cycles = 0;
     }
     pub fn instruction_cycle(&mut self) {
@@ -95,7 +97,7 @@ impl Cpu {
                 continue;
             }
             let mask = 1 << i;
-            if self.status & mask != 0 {
+            if self.status.bits() & mask != 0 {
                 result.insert(0, letters.chars().nth(i).unwrap());
             } else {
                 result.insert(0, '-');
@@ -136,29 +138,17 @@ impl Cpu {
         (high_byte << 8) | low_byte
     }
 
-    pub fn status(&self, flag: ProcessorStatus) -> bool {
-        let flag_bit = 1 << flag as u8;
-        (self.status & flag_bit) != 0
-    }
-    pub fn set_status(&mut self, flag: ProcessorStatus, value: bool) {
-        let flag_bit = 1 << flag.clone() as u8;
-        if value {
-            self.status |= flag_bit; // Set the flag
-        } else {
-            self.status &= !flag_bit; // Clear the flag
-        }
-    }
     pub fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.set_status(ProcessorStatus::Zero, true);
+            self.status.set(ProcessorStatus::Zero, true);
         } else {
-            self.set_status(ProcessorStatus::Zero, false);
+            self.status.set(ProcessorStatus::Zero, false);
         }
 
         if result & 0b1000_0000 != 0 {
-            self.set_status(ProcessorStatus::Negative, true);
+            self.status.set(ProcessorStatus::Negative, true);
         } else {
-            self.set_status(ProcessorStatus::Negative, false);
+            self.status.set(ProcessorStatus::Negative, false);
         }
     }
     pub fn operand_address(&mut self, mode: AddressingMode) -> u16 {
@@ -238,26 +228,30 @@ impl Cpu {
     }
     fn interrupt_nmi(&mut self) {
         self.push_word(self.pc);
-        let mut status = self.status;
+        let mut flag = self.status.clone();
+        flag.set(ProcessorStatus::Break, true);
+        flag.set(ProcessorStatus::Break1, true);
 
-        //self.set_status(&flag, ProcessorStatus::Break, true);
-        //self.push(status);
-        //self.status.insert(CpuFlags::INTERRUPT_DISABLE);
+        self.push(flag.bits());
+        self.status.set(ProcessorStatus::InterruptDisable, true);
 
-        //self.cycles += 2;
-        //self.program_counter = self.mem_read_u16(0xfffA);
+        self.cycles += 2;
+        self.pc = self.memory_bus.read_word(NMI_ADDRESS);
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ProcessorStatus {
-    Carry = 0,
-    Zero = 1,
-    InterruptDisable = 2,
-    DecimalMode = 3,
-    Break = 4,
-    Overflow = 6,
-    Negative = 7,
+bitflags! {
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct ProcessorStatus: u8 {
+        const Carry = 0b0000_0001;
+        const Zero = 0b0000_0010;
+        const InterruptDisable = 0b0000_0100;
+        const DecimalMode = 0b0000_1000;
+        const Break = 0b0001_0000;
+        const Break1 = 0b0010_0000;
+        const Overflow = 0b0100_0000;
+        const Negative = 0b1000_0000;
+    }
 }
 
 #[derive(PartialEq, Clone, Copy)]
