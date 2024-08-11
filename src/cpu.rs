@@ -240,12 +240,12 @@ impl Cpu {
         self.push_word(self.pc);
         let mut status = self.status;
 
-        self.set_status(&mut flag, ProcessorStatus::Break, true);
-        self.push(status);
-        self.status.insert(CpuFlags::INTERRUPT_DISABLE);
+        //self.set_status(&flag, ProcessorStatus::Break, true);
+        //self.push(status);
+        //self.status.insert(CpuFlags::INTERRUPT_DISABLE);
 
-        self.cycles += 2;
-        self.program_counter = self.mem_read_u16(0xfffA);
+        //self.cycles += 2;
+        //self.program_counter = self.mem_read_u16(0xfffA);
     }
 }
 
