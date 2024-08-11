@@ -1,6 +1,9 @@
+use bitflags::Flags;
+
 use crate::mapper::Mapper;
 use crate::memory_bus::MemoryBus;
 use crate::opcodes::{Instruction, CPU_OPCODES};
+use crate::ppu::{ControlFlags, StatusFlags};
 use std::intrinsics::wrapping_add;
 
 pub const RESET_VECTOR: u16 = 0xFFFC;
@@ -27,7 +30,7 @@ impl Cpu {
             x: 0,
             y: 0,
             status: STATUS_DEFAULT,
-            cycles: 7,
+            cycles: 0,
             memory_bus,
         }
     }
@@ -38,9 +41,14 @@ impl Cpu {
         self.x = 0;
         self.y = 0;
         self.status = STATUS_DEFAULT;
-        self.cycles = 7;
+        self.cycles = 0;
     }
     pub fn instruction_cycle(&mut self) {
+        if self.memory_bus.ppu.control_register.contains(ControlFlags::GenerateNmi) {
+            self.memory_bus.ppu.control_register.set(ControlFlags::GenerateNmi, false);
+            self.interrupt_nmi();
+        }
+
         let instruction = self.fetch();
         let cycles = self.execute(&instruction);
         self.cycles += cycles as u32;
@@ -227,6 +235,17 @@ impl Cpu {
         if (address & 0xFF00) != (operand_address & 0xFF00) {
             self.cycles += 1;
         }
+    }
+    fn interrupt_nmi(&mut self) {
+        self.push_word(self.pc);
+        let mut status = self.status;
+
+        self.set_status(&mut flag, ProcessorStatus::Break, true);
+        self.push(status);
+        self.status.insert(CpuFlags::INTERRUPT_DISABLE);
+
+        self.cycles += 2;
+        self.program_counter = self.mem_read_u16(0xfffA);
     }
 }
 

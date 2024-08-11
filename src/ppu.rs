@@ -59,48 +59,48 @@ type Rgb = (u8, u8, u8);
 pub struct Ppu {
     pub frame: Frame,
 
-    chr_rom: Vec<u8>,
-    vram: [u8; VRAM_SIZE],
-    palette_ram: [u8; PALETTE_SIZE],
-    screen_mirroring: Mirroring,
+    pub chr_rom: Vec<u8>,
+    pub vram: [u8; VRAM_SIZE],
+    pub palette_ram: [u8; PALETTE_SIZE],
+    pub screen_mirroring: Mirroring,
 
-    control_register: ControlFlags,
-    status_register: StatusFlags,
+    pub control_register: ControlFlags,
+    pub status_register: StatusFlags,
 
-    cycle: usize,
-    scanline: usize,
+    pub cycle: usize,
+    pub scanline: usize,
 
     // 0 to 3 is background palette, 4 to 7 is sprite palette
-    oam: [u8; 256],
-    oam_address: u8,
-    oam_data: u8,
-    sec_oam: [u8; 32], // 32-byte buffer for current sprites on scanline
-    sec_oam_address: usize,
-    sec_oam_writes_disabled: bool,
-    copy_sprite_signal: i32,
-    oam_address_overflow: bool,
-    sec_oam_address_overflow: bool,
-    overflow_detection: bool,
+    pub oam: [u8; 256],
+    pub oam_address: u8,
+    pub oam_data: u8,
+    pub sec_oam: [u8; 32], // 32-byte buffer for current sprites on scanline
+    pub sec_oam_address: usize,
+    pub sec_oam_writes_disabled: bool,
+    pub copy_sprite_signal: i32,
+    pub oam_address_overflow: bool,
+    pub sec_oam_address_overflow: bool,
+    pub overflow_detection: bool,
 
-    nametable_byte: u8,
-    attribute_byte: u8,
-    pattern_table_low_byte: u8,
-    pattern_table_high_byte: u8,
+    pub nametable_byte: u8,
+    pub attribute_byte: u8,
+    pub pattern_table_low_byte: u8,
+    pub pattern_table_high_byte: u8,
 
-    pattern_low_shift_register: u16,
-    pattern_high_shift_register: u16,
-    attribute_low_shift_register: u8,
-    attribute_high_shift_register: u8,
-    attribute_low_bit_latch: u8,  // 1 bit latch
-    attribute_high_bit_latch: u8, // 1 bit latch
+    pub pattern_low_shift_register: u16,
+    pub pattern_high_shift_register: u16,
+    pub attribute_low_shift_register: u8,
+    pub attribute_high_shift_register: u8,
+    pub attribute_low_bit_latch: u8,  // 1 bit latch
+    pub attribute_high_bit_latch: u8, // 1 bit latch
 
     // Internal registers
-    v: u16,
-    t: u16,
-    x: u8,
-    w: bool,
-    x_scroll: u8,
-    y_scroll: u8,
+    pub v: u16,
+    pub t: u16,
+    pub x: u8,
+    pub w: bool,
+    pub x_scroll: u8,
+    pub y_scroll: u8,
 }
 
 #[allow(clippy::unusual_byte_groupings)]
@@ -150,16 +150,19 @@ impl Ppu {
     pub fn read_ppudata(&mut self) -> u8 {
         let value = self.read(self.v);
         self.v += if self.control_register.vram_address_increment() == 0 { 1 } else { 32 };
+        println!("READ PPUDATA VRAM_ADDRESS: {:X}", self.v);
         value
     }
 
     pub fn write_ppudata(&mut self, value: u8) {
         self.write(self.v, value);
         self.v += if self.control_register.vram_address_increment() == 0 { 1 } else { 32 };
+        println!("WRITE PPUDATA VRAM_ADDRESS: {:X}", self.v);
     }
 
     pub fn read_status(&mut self) -> StatusFlags {
         self.w = false;
+        self.status_register.set(StatusFlags::VerticalBlankStarted, false);
         self.status_register
     }
 
@@ -174,6 +177,7 @@ impl Ppu {
             self.t &= 0xFF00;
             self.t |= value as u16;
             self.v = self.t;
+            println!("WRITE PPUADDR VRAM_ADDRESS: {:X}", self.v);
         }
         self.w = !self.w;
     }
@@ -256,6 +260,7 @@ impl Ppu {
         } else {
             self.v += 1;
         }
+        println!("COARSE X VRAM_ADDRESS: {:X}", self.v);
     }
     fn increment_fine_y(&mut self) {
         if (self.v & 0b111_00_00000_00000) != 0b111_00_00000_00000 {
@@ -274,6 +279,7 @@ impl Ppu {
             }
             self.v = (self.v & !0b000_00_11111_00000) | (y << 5); // put coarse Y back into v
         }
+        println!("FINE_Y VRAM_ADDRESS: {:X}", self.v);
     }
 
     pub fn step(&mut self) {
@@ -290,6 +296,7 @@ impl Ppu {
             261 => {
                 // Pre-render scanline
                 //self.frame.canvas.present();
+                self.status_register.set(StatusFlags::VerticalBlankStarted, false);
             }
             _ => unreachable!("scanline should never be {}", self.scanline),
         };
@@ -510,7 +517,7 @@ impl Ppu {
             0x3000..=0x3EFF => self.vram[self.nametable_mirroring_address(address & 0x2FFF) as usize - 0x2000],
             0x3F00..=0x3F1F => self.palette_ram[address as usize - 0x3F00],
             0x3F20..=0x3FFF => self.palette_ram[(address as usize & 0x3F1F) - 0x3F00], // Mirror of 0x3F00 to 0x3F1F
-            _ => todo!(),
+            _ => panic!("Address {:X} is outside the ppus memory", address),
         }
     }
     pub fn write(&mut self, address: u16, value: u8) {
@@ -523,7 +530,7 @@ impl Ppu {
             0x3000..=0x3EFF => self.vram[self.nametable_mirroring_address(address & 0x2FFF) as usize - 0x2000] = value,
             0x3F00..=0x3F1F => self.palette_ram[address as usize] = value,
             0x3F20..=0x3FFF => self.palette_ram[address as usize & 0x3F1F] = value, // Mirror of 0x3F00 to 0x3F1F
-            _ => todo!(),
+            _ => panic!("Address {:X} is outside the ppus memory", address),
         }
     }
 

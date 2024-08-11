@@ -1,15 +1,15 @@
 #![feature(core_intrinsics)]
 #![feature(const_mut_refs)]
 
-use core::time;
 use cpu::Cpu;
-use egui_macroquad::egui::{self, Color32, ColorImage, Context, Painter, TextureId};
-use egui_macroquad::macroquad::prelude::*;
-use egui_macroquad::*;
+use egui_macroquad::egui::{self, vec2, Color32, ColorImage, Context, Painter, TextureId};
+use egui_macroquad::macroquad;
+use egui_macroquad::macroquad::color::{Color, BLACK, WHITE};
+use egui_macroquad::macroquad::texture::{draw_texture_ex, DrawTextureParams, Texture2D};
+use egui_macroquad::macroquad::window::{clear_background, next_frame, Conf};
 use frame::Frame;
-use macroquad::ui::Id;
 use memory_bus::MemoryBus;
-use ppu::Ppu;
+use ppu::{ControlFlags, Ppu};
 use rom::Rom;
 use std::env;
 use std::fs::File;
@@ -25,7 +25,7 @@ mod opcodes;
 mod ppu;
 mod rom;
 
-const WINDOW_SCALE: usize = 1;
+const WINDOW_SCALE: usize = 4;
 
 fn window_conf() -> Conf {
     Conf {
@@ -70,23 +70,41 @@ async fn main() -> io::Result<()> {
             break;
         }
 
-        cpu.instruction_cycle();
+        loop {
+            let prev_scanline = cpu.memory_bus.ppu.scanline;
+            cpu.instruction_cycle();
+            if cpu.memory_bus.ppu.scanline < prev_scanline {
+                break;
+            }
+        }
 
         draw_nes_screen(&cpu.memory_bus.ppu.frame.pixels);
 
         if draw_egui {
             egui_macroquad::ui(|egui_ctx| {
                 egui::Window::new("egui ❤ macroquad").show(egui_ctx, |ui| {
-                    let color_image = pattern_table_image(&cpu.memory_bus.ppu, false);
-                    let texture_handle = egui_ctx.load_texture("color_image", color_image, egui::TextureOptions::NEAREST);
-                    //ui.heading("My egui Application");
-                    //ui.add(egui::Slider::new(&mut age, 0..=120).text("age"));
-                    //if ui.button("Increment").clicked() {
-                    //}
-                    //ui.label(format!("Hello '{name}', age {age}"));
+                    let left_pattern_table = pattern_table_image(&cpu.memory_bus.ppu, false);
+                    let right_pattern_table = pattern_table_image(&cpu.memory_bus.ppu, true);
+                    let pattern_tables = [left_pattern_table.clone(), right_pattern_table.clone()];
+                    let nametable = nametable_image(&cpu.memory_bus.ppu, 0, &pattern_tables);
+
+                    let left_pattern_table_handle = egui_ctx.load_texture("left_pattern_table", left_pattern_table, egui::TextureOptions::NEAREST);
+                    let right_pattern_table_handle = egui_ctx.load_texture("right_pattern_table", right_pattern_table, egui::TextureOptions::NEAREST);
+                    let nametable_handle = egui_ctx.load_texture("nametable", nametable, egui::TextureOptions::NEAREST);
                     ui.image(
-                        texture_handle.id(),
-                        texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
+                        left_pattern_table_handle.id(),
+                        //texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
+                        left_pattern_table_handle.size_vec2() * egui::vec2(2.0, 2.0),
+                    );
+                    ui.image(
+                        right_pattern_table_handle.id(),
+                        //texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
+                        right_pattern_table_handle.size_vec2() * egui::vec2(2.0, 2.0),
+                    );
+                    ui.image(
+                        nametable_handle.id(),
+                        //texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
+                        nametable_handle.size_vec2() * egui::vec2(2.0, 2.0),
                     );
                     ui.heading("My egui Application");
                 });
@@ -102,8 +120,8 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn pattern_table_image(ppu: &Ppu, is_left: bool) -> egui::ColorImage {
-    let start_address = if is_left { 0x0000 } else { 0x1000 };
+fn pattern_table_image(ppu: &Ppu, is_right: bool) -> egui::ColorImage {
+    let start_address = if is_right { 0x1000 } else { 0x0000 };
     let mut pattern_table = egui::ColorImage::new([16 * 8, 16 * 8], egui::Color32::BLACK);
     for tile_y in 0..16 {
         for tile_x in 0..16 {
@@ -125,6 +143,34 @@ fn pattern_table_image(ppu: &Ppu, is_left: bool) -> egui::ColorImage {
     }
     pattern_table
 }
+fn nametable_image(ppu: &Ppu, nametable_index: u16, pattern_tables: &[ColorImage; 2]) -> ColorImage {
+    let pattern_table_image = if ppu.control_register.contains(ControlFlags::BackgroundPatternTableAddress) {
+        &pattern_tables[1]
+    } else {
+        &pattern_tables[0]
+    };
+    let start_address = 0x2000 + nametable_index * 0x400;
+    let mut nametable_image = egui::ColorImage::new([32 * 8, 30 * 8], egui::Color32::BLACK);
+    for tile_y in 0..30 {
+        for tile_x in 0..32 {
+            let nametable_address = start_address + tile_y * 16 + tile_x;
+            let nametable_byte = ppu.read(nametable_address);
+            let pattern_x = (nametable_byte % 16) * 8;
+            let pattern_y = (nametable_byte / 16) * 8;
+            //println!("{}", nametable_byte);
+            for y in 0..8 {
+                for x in 0..8 {
+                    let pixel_x = pattern_x + x;
+                    let pixel_y = pattern_y + y;
+                    let nametable_x = tile_x as u8 * 8 + pixel_x;
+                    let nametable_y = tile_y as u8 * 8 + pixel_y;
+                    nametable_image[(nametable_x as usize, nametable_y as usize)] = pattern_table_image[(pixel_x as usize, pixel_y as usize)];
+                }
+            }
+        }
+    }
+    nametable_image
+}
 
 fn draw_nes_screen(frame: &[[(u8, u8, u8); Frame::HEIGHT]; Frame::WIDTH]) {
     let mut image = macroquad::texture::Image::gen_image_color(Frame::WIDTH as u16, Frame::HEIGHT as u16, BLACK);
@@ -138,7 +184,10 @@ fn draw_nes_screen(frame: &[[(u8, u8, u8); Frame::HEIGHT]; Frame::WIDTH]) {
 
     let texture = Texture2D::from_image(&image);
     let draw_params = DrawTextureParams {
-        dest_size: Some(Vec2::new((Frame::WIDTH * WINDOW_SCALE) as f32, (Frame::HEIGHT * WINDOW_SCALE) as f32)),
+        dest_size: Some(macroquad::math::Vec2::new(
+            (Frame::WIDTH * WINDOW_SCALE) as f32,
+            (Frame::HEIGHT * WINDOW_SCALE) as f32,
+        )),
         ..Default::default()
     };
     draw_texture_ex(texture, 0.0, 0.0, WHITE, draw_params);
