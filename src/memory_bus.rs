@@ -41,10 +41,36 @@ impl MemoryBus {
             mapper,
         }
     }
-}
 
-impl Mapper for MemoryBus {
-    fn read(&mut self, address: u16) -> u8 {
+    pub fn debug_read(&self, address: u16) -> u8 {
+        match address {
+            0x0000..=0x07FF => self.cpu_vram[address as usize],
+            0x0800..=0x1FFF => {
+                let mirrored_down_address = address & 0x07FF;
+                self.debug_read(mirrored_down_address)
+            }
+            PPUSTATUS => self.ppu.status_register.bits(),
+            OAMDATA => self.ppu.oam_data,
+            PPUDATA => self.ppu.read(self.ppu.v),
+            PPUCTRL | PPUMASK | OAMADDR | PPUSCROLL | PPUADDR | OAMDMA => {
+                panic!("Address {} is a write only PPU register and reading from it is not allowed", address);
+            }
+            0x2008..=0x3FFF => {
+                let mirror_down_address = (address & 0x2007) % 0x800;
+                self.debug_read(mirror_down_address)
+            }
+            0x4000..=0x401F => {
+                // NES APU and I/O registers and their functionality
+                self.apu_io_registers[(address - 0x4000) as usize]
+            }
+            0x4020..=0xFFFF => {
+                // Cartridge space: PRG ROM, PRG RAM, and mapper registers
+                self.mapper.read(address)
+            }
+        }
+    }
+
+    pub fn read(&mut self, address: u16) -> u8 {
         match address {
             0x0000..=0x07FF => self.cpu_vram[address as usize],
             0x0800..=0x1FFF => {
@@ -72,7 +98,7 @@ impl Mapper for MemoryBus {
         }
     }
 
-    fn write(&mut self, address: u16, value: u8) {
+    pub fn write(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x1FFF => {
                 // 2 KB internal RAM mirrored every 0x0800 bytes
@@ -114,13 +140,13 @@ impl Mapper for MemoryBus {
         }
     }
 
-    fn read_word(&mut self, address: u16) -> u16 {
+    pub fn read_word(&mut self, address: u16) -> u16 {
         let low = self.read(address) as u16;
         let high = self.read(address.wrapping_add(1)) as u16;
         (high << 8) | low
     }
 
-    fn write_word(&mut self, address: u16, value: u16) {
+    pub fn write_word(&mut self, address: u16, value: u16) {
         let low_byte = (value & 0xFF) as u8;
         let high_byte = ((value >> 8) & 0xFF) as u8;
 

@@ -150,14 +150,14 @@ impl Ppu {
     pub fn read_ppudata(&mut self) -> u8 {
         let value = self.read(self.v);
         self.v += if self.control_register.vram_address_increment() == 0 { 1 } else { 32 };
-        println!("READ PPUDATA VRAM_ADDRESS: {:X}", self.v);
+        //println!("READ PPUDATA VRAM_ADDRESS: {:X}", self.v);
         value
     }
 
     pub fn write_ppudata(&mut self, value: u8) {
         self.write(self.v, value);
         self.v += if self.control_register.vram_address_increment() == 0 { 1 } else { 32 };
-        println!("WRITE PPUDATA VRAM_ADDRESS: {:X}", self.v);
+        //println!("WRITE PPUDATA VRAM_ADDRESS: {:X}", self.v);
     }
 
     pub fn read_status(&mut self) -> StatusFlags {
@@ -177,7 +177,7 @@ impl Ppu {
             self.t &= 0xFF00;
             self.t |= value as u16;
             self.v = self.t;
-            println!("WRITE PPUADDR VRAM_ADDRESS: {:X}", self.v);
+            //println!("WRITE PPUADDR VRAM_ADDRESS: {:X}", self.v);
         }
         self.w = !self.w;
     }
@@ -260,7 +260,7 @@ impl Ppu {
         } else {
             self.v += 1;
         }
-        println!("COARSE X VRAM_ADDRESS: {:X}", self.v);
+        //println!("COARSE X VRAM_ADDRESS: {:X}", self.v);
     }
     fn increment_fine_y(&mut self) {
         if (self.v & 0b111_00_00000_00000) != 0b111_00_00000_00000 {
@@ -279,7 +279,7 @@ impl Ppu {
             }
             self.v = (self.v & !0b000_00_11111_00000) | (y << 5); // put coarse Y back into v
         }
-        println!("FINE_Y VRAM_ADDRESS: {:X}", self.v);
+        //println!("FINE_Y VRAM_ADDRESS: {:X}", self.v);
     }
 
     pub fn step(&mut self) {

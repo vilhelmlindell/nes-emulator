@@ -1,6 +1,6 @@
 pub trait Mapper {
-    fn read(&mut self, address: u16) -> u8;
-    fn read_word(&mut self, address: u16) -> u16 {
+    fn read(&self, address: u16) -> u8;
+    fn read_word(&self, address: u16) -> u16 {
         let low = self.read(address) as u16;
         let high = self.read(address.wrapping_add(1)) as u16;
         (high << 8) | low
@@ -27,13 +27,12 @@ impl NromMapper {
 }
 
 impl Mapper for NromMapper {
-    fn read(&mut self, address: u16) -> u8 {
+    fn read(&self, address: u16) -> u8 {
         match address {
             0x4020..=0x7FFF => self.prg_ram[(address - 0x4020) as usize],
             0x8000..=0xFFFF => {
                 // In NROM, the PRG ROM is directly accessible from CPU address space
-                let prg_rom_address = (address as usize - 0x8000) % 16384;
-                self.prg_rom[prg_rom_address]
+                self.prg_rom[(address as usize - 0x8000) & 0x4000]
             }
             _ => {
                 unreachable!("Mapper should not handle this address");

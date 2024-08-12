@@ -29,7 +29,7 @@ const WINDOW_SCALE: usize = 4;
 
 fn window_conf() -> Conf {
     Conf {
-        window_title: "Window Conf".to_owned(),
+        window_title: "Nes Emulator".to_owned(),
         fullscreen: false,
         window_width: 256 * WINDOW_SCALE as i32,
         window_height: 240 * WINDOW_SCALE as i32,
@@ -56,12 +56,11 @@ async fn main() -> io::Result<()> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
 
-    //let mut trace_file = File::create("trace.txt")?;
-
     let mut cpu = Cpu::new(MemoryBus::new(Rom::new(&bytes).expect("Failed to create rom")));
 
     let is_running = true;
     let draw_egui = true;
+    let mut nametable_index = 0;
 
     clear_background(BLACK);
 
@@ -70,50 +69,58 @@ async fn main() -> io::Result<()> {
             break;
         }
 
-        loop {
-            let prev_scanline = cpu.memory_bus.ppu.scanline;
-            cpu.instruction_cycle();
-            if cpu.memory_bus.ppu.scanline < prev_scanline {
-                break;
-            }
-        }
+        //loop {
+        //    let prev_scanline = cpu.memory_bus.ppu.scanline;
+        //    cpu.instruction_cycle();
+        //    if cpu.memory_bus.ppu.scanline < prev_scanline {
+        //        break;
+        //    }
+        //}
 
         draw_nes_screen(&cpu.memory_bus.ppu.frame.pixels);
 
         if draw_egui {
             egui_macroquad::ui(|egui_ctx| {
-                egui::Window::new("egui ❤ macroquad").show(egui_ctx, |ui| {
+                egui::SidePanel::left("").show(egui_ctx, |ui| {
                     let left_pattern_table = pattern_table_image(&cpu.memory_bus.ppu, false);
                     let right_pattern_table = pattern_table_image(&cpu.memory_bus.ppu, true);
                     let pattern_tables = [left_pattern_table.clone(), right_pattern_table.clone()];
-                    let nametable = nametable_image(&cpu.memory_bus.ppu, 0, &pattern_tables);
+                    let nametable = nametable_image(&cpu.memory_bus.ppu, nametable_index, &pattern_tables);
 
                     let left_pattern_table_handle = egui_ctx.load_texture("left_pattern_table", left_pattern_table, egui::TextureOptions::NEAREST);
                     let right_pattern_table_handle = egui_ctx.load_texture("right_pattern_table", right_pattern_table, egui::TextureOptions::NEAREST);
                     let nametable_handle = egui_ctx.load_texture("nametable", nametable, egui::TextureOptions::NEAREST);
-                    ui.image(
-                        left_pattern_table_handle.id(),
-                        //texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
-                        left_pattern_table_handle.size_vec2() * egui::vec2(2.0, 2.0),
-                    );
-                    ui.image(
-                        right_pattern_table_handle.id(),
-                        //texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
-                        right_pattern_table_handle.size_vec2() * egui::vec2(2.0, 2.0),
-                    );
-                    ui.image(
-                        nametable_handle.id(),
-                        //texture_handle.size_vec2() * egui::Vec2::new(WINDOW_SCALE as f32, WINDOW_SCALE as f32),
-                        nametable_handle.size_vec2() * egui::vec2(2.0, 2.0),
-                    );
-                    ui.heading("My egui Application");
+
+                    ui.collapsing("Timing", |ui| {
+                        ui.label(format!("CPU {}", cpu.cycles));
+                        let instruction = cpu.fetch();
+                        ui.label(cpu.execution_trace(&instruction));
+                        if ui.button("Step Instruction").clicked() {
+                            cpu.instruction_cycle();
+                        }
+                        ui.label(format!("PPU {}, {}", cpu.memory_bus.ppu.scanline, cpu.memory_bus.ppu.cycle,))
+                    });
+                    ui.collapsing("Pattern Tables", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.image(left_pattern_table_handle.id(), left_pattern_table_handle.size_vec2());
+                            ui.image(right_pattern_table_handle.id(), right_pattern_table_handle.size_vec2());
+                        });
+                    });
+                    ui.collapsing("Nametables", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut nametable_index, 0, "$2000");
+                            ui.radio_value(&mut nametable_index, 1, "$2400");
+                            ui.radio_value(&mut nametable_index, 2, "$2800");
+                            ui.radio_value(&mut nametable_index, 3, "$2C00");
+                        });
+                        ui.image(nametable_handle.id(), nametable_handle.size_vec2());
+                    });
                 });
             });
 
             egui_macroquad::draw();
         }
 
-        //sleep(Duration::SECOND * 3);
         next_frame().await;
     }
 

@@ -58,8 +58,8 @@ impl Cpu {
             self.memory_bus.ppu.step();
         }
     }
-    pub fn fetch(&mut self) -> Instruction {
-        let opcode = self.memory_bus.read(self.pc) as usize;
+    pub fn fetch(&self) -> Instruction {
+        let opcode = self.memory_bus.debug_read(self.pc) as usize;
         CPU_OPCODES[opcode].clone().unwrap_or_else(|| panic!("Invalid opcode: {:X}", opcode))
     }
     pub fn execute(&mut self, instruction: &Instruction) -> u8 {
@@ -73,11 +73,11 @@ impl Cpu {
             self.execute(&instruction);
         }
     }
-    pub fn execution_trace(&mut self, instruction: &Instruction) -> String {
+    pub fn execution_trace(&self, instruction: &Instruction) -> String {
         let mut output = format!("{:04X}  ", self.pc);
         for i in 0..3 {
             if i < instruction.bytes {
-                output.push_str(&format!("{:02X} ", self.memory_bus.read(self.pc.wrapping_add(i as u16))));
+                output.push_str(&format!("{:02X} ", self.memory_bus.debug_read(self.pc.wrapping_add(i as u16))));
             } else {
                 output.push_str("   ");
             }
